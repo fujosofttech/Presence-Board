@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     # サードパーティ
     'rest_framework',
+    'rest_framework.authtoken',
     'drf_spectacular',
     # プロジェクトアプリ
     'apps.employees',
@@ -149,8 +150,7 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
-    # エラーレスポンスは 06_API設計.md のフォーマットに準拠
-    # error_code / message / details
+    'EXCEPTION_HANDLER': 'apps.employees.exceptions.custom_exception_handler',
 }
 
 
