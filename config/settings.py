@@ -40,9 +40,9 @@ INSTALLED_APPS = [
     # サードパーティ
     'rest_framework',
     'drf_spectacular',
-    # プロジェクトアプリ（追加予定）
+    # プロジェクトアプリ
+    'apps.employees',
     # 'apps.presence',
-    # 'apps.employees',
 ]
 
 MIDDLEWARE = [
