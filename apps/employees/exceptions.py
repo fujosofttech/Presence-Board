@@ -1,14 +1,15 @@
-from rest_framework.views import exception_handler
-from rest_framework.response import Response
-from rest_framework import status
-from rest_framework.exceptions import NotAuthenticated, AuthenticationFailed
 import logging
+
+from rest_framework import status
+from rest_framework.exceptions import AuthenticationFailed, NotAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import exception_handler
 
 logger = logging.getLogger(__name__)
 
 def custom_exception_handler(exc, context):
     """
-    Django REST Framework の例外をキャッチし、共通のエラーレスポンス形式に変換する。
+    DRF の例外を共通のエラーレスポンス形式に変換する。
     仕様書 06_API設計.md に準拠:
     {
         "error_code": "E0001",
@@ -19,11 +20,9 @@ def custom_exception_handler(exc, context):
     response = exception_handler(exc, context)
 
     if response is not None:
-        # 認証されていない場合や認証に失敗した場合はステータスコードを 401 Unauthorized に書き換える
         if isinstance(exc, (NotAuthenticated, AuthenticationFailed)):
             response.status_code = status.HTTP_401_UNAUTHORIZED
 
-        # ステータスコードに応じたエラーコードと一般的なメッセージの設定
         if response.status_code == status.HTTP_400_BAD_REQUEST:
             error_code = "E4000"
             message = "入力内容にエラーがあります。"
@@ -48,7 +47,6 @@ def custom_exception_handler(exc, context):
             "details": details
         }
     else:
-        # 未ハンドリングのサーバーエラー (500 Internal Server Error など)
         logger.error("Unhandled exception occurred: %s", str(exc), exc_info=exc)
         response = Response(
             {

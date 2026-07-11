@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from .models import Department, Group, WorkLocation, StatusMaster, Employee
+
+from .models import Department, Employee, Group, StatusMaster, WorkLocation
 
 class DepartmentSerializer(serializers.ModelSerializer):
     class Meta:
@@ -48,11 +49,9 @@ class EmployeeSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at', 'deleted_at']
 
     def validate(self, data):
-        # 組織の整合性を検証 (Group が指定された Department に属しているか)
         department = data.get('department')
         group = data.get('group')
 
-        # 部分更新 (PATCH) 等で一部のみ送られてくる場合を考慮し、インスタンスの値も考慮
         if not department and self.instance:
             department = self.instance.department
         if not group and self.instance:

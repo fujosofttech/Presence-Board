@@ -1,74 +1,57 @@
 from django.utils import timezone
-from rest_framework import viewsets, filters
+from rest_framework import filters, viewsets
 from rest_framework.permissions import IsAuthenticated
-from .models import Department, Group, WorkLocation, StatusMaster, Employee
+
+from .models import Department, Employee, Group, StatusMaster, WorkLocation
 from .serializers import (
-    DepartmentSerializer, GroupSerializer, WorkLocationSerializer, 
-    StatusMasterSerializer, EmployeeSerializer
+    DepartmentSerializer,
+    EmployeeSerializer,
+    GroupSerializer,
+    StatusMasterSerializer,
+    WorkLocationSerializer,
 )
 
-class DepartmentViewSet(viewsets.ModelViewSet):
+class BaseModelViewSet(viewsets.ModelViewSet):
     """
-    課マスタのAPIエンドポイント。
+    論理削除と共通設定をサポートする基底 ViewSet。
     """
-    serializer_class = DepartmentSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ['display_order', 'id']
     ordering = ['display_order', 'id']
 
     def get_queryset(self):
-        # 論理削除されていないレコードのみ取得
-        return Department.objects.filter(deleted_at__isnull=True)
+        # 継承先のモデルクラスを動的に判定してフィルタリング
+        return self.queryset.filter(deleted_at__isnull=True)
 
     def perform_destroy(self, instance):
-        # 物理削除の代わりに論理削除
         instance.deleted_at = timezone.now()
         instance.save()
 
-class GroupViewSet(viewsets.ModelViewSet):
-    """
-    グループマスタのAPIエンドポイント。
-    """
+
+class DepartmentViewSet(BaseModelViewSet):
+    queryset = Department.objects.all()
+    serializer_class = DepartmentSerializer
+
+
+class GroupViewSet(BaseModelViewSet):
+    queryset = Group.objects.all()
     serializer_class = GroupSerializer
-    permission_classes = [IsAuthenticated]
-    filter_backends = [filters.OrderingFilter]
-    ordering_fields = ['display_order', 'id']
-    ordering = ['display_order', 'id']
 
     def get_queryset(self):
-        queryset = Group.objects.filter(deleted_at__isnull=True)
-        # クエリパラメータによるフィルタリング
+        queryset = super().get_queryset()
         department_id = self.request.query_params.get('department')
         if department_id:
             queryset = queryset.filter(department_id=department_id)
         return queryset
 
-    def perform_destroy(self, instance):
-        instance.deleted_at = timezone.now()
-        instance.save()
 
-class WorkLocationViewSet(viewsets.ModelViewSet):
-    """
-    勤務場所マスタのAPIエンドポイント。
-    """
+class WorkLocationViewSet(BaseModelViewSet):
+    queryset = WorkLocation.objects.all()
     serializer_class = WorkLocationSerializer
-    permission_classes = [IsAuthenticated]
-    filter_backends = [filters.OrderingFilter]
-    ordering_fields = ['display_order', 'id']
-    ordering = ['display_order', 'id']
 
-    def get_queryset(self):
-        return WorkLocation.objects.filter(deleted_at__isnull=True)
-
-    def perform_destroy(self, instance):
-        instance.deleted_at = timezone.now()
-        instance.save()
 
 class StatusMasterViewSet(viewsets.ModelViewSet):
-    """
-    状態マスタのAPIエンドポイント。
-    """
     queryset = StatusMaster.objects.all()
     serializer_class = StatusMasterSerializer
     permission_classes = [IsAuthenticated]
@@ -76,23 +59,17 @@ class StatusMasterViewSet(viewsets.ModelViewSet):
     ordering_fields = ['display_order', 'id']
     ordering = ['display_order', 'id']
 
-    # 状態マスタは論理削除フラグを持たず、物理削除とする想定
 
-class EmployeeViewSet(viewsets.ModelViewSet):
-    """
-    社員のAPIエンドポイント。
-    """
+class EmployeeViewSet(BaseModelViewSet):
+    queryset = Employee.objects.all()
     serializer_class = EmployeeSerializer
-    permission_classes = [IsAuthenticated]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['employee_no', 'name', 'email']
-    ordering_fields = ['display_order', 'id']
-    ordering = ['display_order', 'id']
 
     def get_queryset(self):
-        queryset = Employee.objects.filter(deleted_at__isnull=True)
+        # N+1問題を回避するために select_related を適用
+        queryset = super().get_queryset().select_related('department', 'group', 'work_location')
         
-        # クエリパラメータによるフィルタリング
         department_id = self.request.query_params.get('department')
         group_id = self.request.query_params.get('group')
         
@@ -102,7 +79,3 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(group_id=group_id)
             
         return queryset
-
-    def perform_destroy(self, instance):
-        instance.deleted_at = timezone.now()
-        instance.save()
