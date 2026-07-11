@@ -1,0 +1,99 @@
+from django.db import models
+from apps.employees.models import Employee, StatusMaster
+
+class Presence(models.Model):
+    """
+    社員の現在状態を保持する。
+    社員1名につき1レコードのみ保持する。
+    """
+    employee = models.OneToOneField(
+        Employee,
+        on_delete=models.CASCADE,
+        related_name="presence",
+        verbose_name="社員",
+    )
+    status = models.ForeignKey(
+        StatusMaster,
+        on_delete=models.PROTECT,
+        related_name="presences",
+        verbose_name="状態",
+    )
+    destination = models.CharField(
+        max_length=300,
+        blank=True,
+        default="",
+        verbose_name="行先",
+    )
+    start_datetime = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="更新開始日時",
+    )
+    end_datetime = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="戻り予定日時",
+    )
+    updated_by = models.BigIntegerField(
+        null=True,
+        blank=True,
+        verbose_name="更新者ID",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="作成日時")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="更新日時")
+
+    class Meta:
+        db_table = "presence"
+        verbose_name = "現在状態"
+        verbose_name_plural = "現在状態一覧"
+
+    def __str__(self) -> str:
+        return f"{self.employee.name} - {self.status.name}"
+
+class PresenceHistory(models.Model):
+    """
+    状態変更履歴
+    """
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.CASCADE,
+        related_name="presence_histories",
+        verbose_name="社員",
+    )
+    status = models.ForeignKey(
+        StatusMaster,
+        on_delete=models.PROTECT,
+        related_name="presence_histories",
+        verbose_name="状態",
+    )
+    destination = models.CharField(
+        max_length=300,
+        blank=True,
+        default="",
+        verbose_name="行先",
+    )
+    start_datetime = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="更新開始日時",
+    )
+    end_datetime = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="戻り予定日時",
+    )
+    updated_by = models.BigIntegerField(
+        null=True,
+        blank=True,
+        verbose_name="更新者ID",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="作成日時")
+
+    class Meta:
+        db_table = "presence_history"
+        verbose_name = "状態変更履歴"
+        verbose_name_plural = "状態変更履歴一覧"
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.employee.name} - {self.status.name} ({self.created_at})"

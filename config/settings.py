@@ -43,7 +43,7 @@ INSTALLED_APPS = [
     'drf_spectacular',
     # プロジェクトアプリ
     'apps.employees',
-    # 'apps.presence',
+    'apps.presence',
 ]
 
 MIDDLEWARE = [

@@ -1,9 +1,6 @@
-from django.http import StreamingHttpResponse
 from django.utils import timezone
 from rest_framework import filters, viewsets
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.views import APIView
-import time
 
 from .models import Department, Employee, Group, StatusMaster, WorkLocation
 from .serializers import (
@@ -80,22 +77,3 @@ class EmployeeViewSet(BaseModelViewSet):
             queryset = queryset.filter(group_id=group_id)
             
         return queryset
-
-
-class SSEEventStreamView(APIView):
-    """
-    Server-Sent Events (SSE) による状態更新ストリーム配信エンドポイント。
-    """
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, *args, **kwargs):
-        def event_stream():
-            yield "event: welcome\ndata: {}\n\n"
-            while True:
-                time.sleep(30)
-                yield "event: heartbeat\ndata: {}\n\n"
-
-        response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
-        response["Cache-Control"] = "no-cache"
-        response["X-Accel-Buffering"] = "no"
-        return response
