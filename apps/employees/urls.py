@@ -7,6 +7,7 @@ from .views import (
     GroupViewSet,
     StatusMasterViewSet,
     WorkLocationViewSet,
+    SSEEventStreamView,
 )
 
 router = DefaultRouter()
@@ -17,5 +18,6 @@ router.register(r'status-masters', StatusMasterViewSet, basename='status-master'
 router.register(r'employees', EmployeeViewSet, basename='employee')
 
 urlpatterns = [
+    path('events/stream/', SSEEventStreamView.as_view(), name='sse-stream'),
     path('', include(router.urls)),
 ]
