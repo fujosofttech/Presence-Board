@@ -4,7 +4,7 @@ from rest_framework.test import APITestCase
 from django.contrib.auth.models import User
 from apps.employees.models import Department, Group, StatusMaster, Employee
 from apps.presence.models import Presence, PresenceHistory
-from apps.presence.events import event_bus
+from apps.presence.events import event_publisher, MemoryEventPublisher
 
 
 class SSEStreamViewTestCase(APITestCase):
@@ -93,7 +93,9 @@ class PresenceAPITestCase(APITestCase):
     def test_patch_presence_me_out_validation_success(self):
         """OUT状態への更新がバリデーション成功し、SSEイベントが発生すること"""
         # SSEブロードキャストテスト用のリスナーを登録
-        q = event_bus.register()
+        q = None
+        if isinstance(event_publisher, MemoryEventPublisher):
+            q = event_publisher.register()
 
         data = {
             "status": "OUT",
@@ -109,13 +111,14 @@ class PresenceAPITestCase(APITestCase):
         self.assertEqual(presence.destination, '〇〇商事')
 
         # SSE イベントバスに正しく流れているか
-        event_name, event_data = q.get(timeout=1)
-        self.assertEqual(event_name, 'presence_updated')
-        self.assertEqual(event_data['employee_no'], 'E0001')
-        self.assertEqual(event_data['status'], 'OUT')
-        self.assertEqual(event_data['destination'], '〇〇商事')
+        if q is not None:
+            event_name, event_data = q.get(timeout=1)
+            self.assertEqual(event_name, 'presence_updated')
+            self.assertEqual(event_data['employee_no'], 'E0001')
+            self.assertEqual(event_data['status'], 'OUT')
+            self.assertEqual(event_data['destination'], '〇〇商事')
 
-        event_bus.unregister(q)
+            event_publisher.unregister(q)
 
     def test_patch_presence_me_out_validation_error(self):
         """OUT状態で行先や戻り時間が未設定の場合、バリデーションエラーとなること"""

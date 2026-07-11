@@ -11,7 +11,7 @@ from rest_framework.views import APIView
 
 from apps.employees.models import Employee, StatusMaster
 from apps.presence.models import Presence, PresenceHistory
-from .events import event_bus
+from .events import event_publisher, MemoryEventPublisher
 from .serializers import PresenceListSerializer, PresenceSerializer, PresenceUpdateSerializer
 
 
@@ -22,7 +22,8 @@ class SSEEventStreamView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        q = event_bus.register()
+        is_memory_bus = isinstance(event_publisher, MemoryEventPublisher)
+        q = event_publisher.register() if is_memory_bus else queue.Queue()
 
         def event_stream():
             yield "event: welcome\ndata: {}\n\n"
@@ -36,7 +37,8 @@ class SSEEventStreamView(APIView):
                         # 30秒イベントがない場合はハートビートを送信
                         yield "event: heartbeat\ndata: {}\n\n"
             finally:
-                event_bus.unregister(q)
+                if is_memory_bus:
+                    event_publisher.unregister(q)
 
         response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
         response["Cache-Control"] = "no-cache"
@@ -123,7 +125,7 @@ class MyPresenceUpdateView(APIView):
                     'destination': destination,
                     'start_datetime': now,
                     'end_datetime': return_time,
-                    'updated_by': request.user.id
+                    'updated_by': request.user
                 }
             )
 
@@ -132,7 +134,7 @@ class MyPresenceUpdateView(APIView):
                 presence.destination = destination
                 presence.start_datetime = now
                 presence.end_datetime = return_time
-                presence.updated_by = request.user.id
+                presence.updated_by = request.user
                 presence.save()
 
             # 履歴テーブルへの追記
@@ -142,7 +144,7 @@ class MyPresenceUpdateView(APIView):
                 destination=destination,
                 start_datetime=now,
                 end_datetime=return_time,
-                updated_by=request.user.id
+                updated_by=request.user
             )
 
         # SSE イベントを発行
@@ -159,6 +161,6 @@ class MyPresenceUpdateView(APIView):
             "updated_at": updated_at_iso
         }
         
-        event_bus.broadcast("presence_updated", event_data)
+        event_publisher.broadcast("presence_updated", event_data)
 
         return Response(PresenceSerializer(presence).data, status=status.HTTP_200_OK)

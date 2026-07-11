@@ -1,4 +1,5 @@
 from django.db import models
+from django.contrib.auth.models import User
 from apps.employees.models import Employee, StatusMaster
 
 class Presence(models.Model):
@@ -34,10 +35,12 @@ class Presence(models.Model):
         blank=True,
         verbose_name="戻り予定日時",
     )
-    updated_by = models.BigIntegerField(
+    updated_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        verbose_name="更新者ID",
+        verbose_name="更新者",
     )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="作成日時")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="更新日時")
@@ -46,6 +49,9 @@ class Presence(models.Model):
         db_table = "presence"
         verbose_name = "現在状態"
         verbose_name_plural = "現在状態一覧"
+        indexes = [
+            models.Index(fields=["updated_at"], name="idx_presence_updated_at"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.employee.name} - {self.status.name}"
@@ -82,10 +88,12 @@ class PresenceHistory(models.Model):
         blank=True,
         verbose_name="戻り予定日時",
     )
-    updated_by = models.BigIntegerField(
+    updated_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        verbose_name="更新者ID",
+        verbose_name="更新者",
     )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="作成日時")
 
@@ -94,6 +102,10 @@ class PresenceHistory(models.Model):
         verbose_name = "状態変更履歴"
         verbose_name_plural = "状態変更履歴一覧"
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["employee", "created_at"], name="idx_p_hist_emp_created"),
+            models.Index(fields=["employee", "status"], name="idx_p_hist_emp_status"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.employee.name} - {self.status.name} ({self.created_at})"
