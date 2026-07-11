@@ -1,6 +1,7 @@
 import json
 import queue
 from django.db import transaction
+from django.db.models import Q
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 from rest_framework import status
@@ -164,3 +165,44 @@ class MyPresenceUpdateView(APIView):
         event_publisher.broadcast("presence_updated", event_data)
 
         return Response(PresenceSerializer(presence).data, status=status.HTTP_200_OK)
+
+
+class SearchAPIView(ListAPIView):
+    """
+    社員および在籍状態の検索API。
+    """
+    serializer_class = PresenceListSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = Employee.objects.filter(deleted_at__isnull=True).select_related(
+            'department', 'group', 'work_location', 'presence', 'presence__status'
+        )
+
+        q = self.request.query_params.get('q')
+        name = self.request.query_params.get('name')
+        employee_no = self.request.query_params.get('employee_no')
+        status_name = self.request.query_params.get('status')
+        department_id = self.request.query_params.get('department')
+        group_id = self.request.query_params.get('group')
+
+        if q:
+            queryset = queryset.filter(
+                Q(name__icontains=q) |
+                Q(employee_no__icontains=q) |
+                Q(presence__destination__icontains=q) |
+                Q(presence__status__name__icontains=q)
+            )
+
+        if name:
+            queryset = queryset.filter(name__icontains=name)
+        if employee_no:
+            queryset = queryset.filter(employee_no__iexact=employee_no)
+        if status_name:
+            queryset = queryset.filter(presence__status__name__iexact=status_name.upper())
+        if department_id:
+            queryset = queryset.filter(department_id=department_id)
+        if group_id:
+            queryset = queryset.filter(group_id=group_id)
+
+        return queryset

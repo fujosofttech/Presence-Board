@@ -157,3 +157,105 @@ class PresenceAPITestCase(APITestCase):
         response = self.client.patch(self.update_url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data['error_code'], 'E0001')
+
+
+class PresenceSearchAPITestCase(APITestCase):
+    def setUp(self):
+        # ユーザーと認証設定
+        self.user = User.objects.create_user(username='testuser', email='test@example.com', password='password123')
+        self.client.force_login(self.user)
+
+        # テストマスタデータの作成
+        self.dept_dev = Department.objects.create(name='開発部', display_order=1)
+        self.dept_sales = Department.objects.create(name='営業部', display_order=2)
+        
+        self.group_dev1 = Group.objects.create(department=self.dept_dev, name='開発1G', display_order=1)
+        self.group_sales1 = Group.objects.create(department=self.dept_sales, name='営業1G', display_order=1)
+        
+        self.status_present = StatusMaster.objects.create(name='PRESENT', display_order=1)
+        self.status_out = StatusMaster.objects.create(name='OUT', display_order=2)
+
+        # テスト社員の作成
+        self.emp1 = Employee.objects.create(
+            employee_no='E0001', name='山田太郎', email='yamada@example.com',
+            department=self.dept_dev, group=self.group_dev1, display_order=1
+        )
+        self.emp2 = Employee.objects.create(
+            employee_no='E0002', name='佐藤花子', email='sato@example.com',
+            department=self.dept_sales, group=self.group_sales1, display_order=2
+        )
+
+        # Presence の設定
+        Presence.objects.create(
+            employee=self.emp1, status=self.status_present, destination='', updated_by=self.user
+        )
+        Presence.objects.create(
+            employee=self.emp2, status=self.status_out, destination='〇〇商事', updated_by=self.user
+        )
+
+        self.search_url = reverse('presence:presence-search')
+
+    def test_search_unauthenticated(self):
+        """未認証でアクセスしたときに401エラーが返ること"""
+        self.client.logout()
+        response = self.client.get(self.search_url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_search_all(self):
+        """パラメータなしの場合は全社員が返ること"""
+        response = self.client.get(self.search_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 2)
+
+    def test_search_q_by_name(self):
+        """qによる氏名部分一致検索が正しく機能すること"""
+        response = self.client.get(self.search_url, {'q': '山田'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '山田太郎')
+
+    def test_search_q_by_employee_no(self):
+        """qによる社員番号部分一致検索が正しく機能すること"""
+        response = self.client.get(self.search_url, {'q': 'E0002'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '佐藤花子')
+
+    def test_search_q_by_destination(self):
+        """qによる行先部分一致検索が正しく機能すること"""
+        response = self.client.get(self.search_url, {'q': '〇〇商事'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '佐藤花子')
+
+    def test_search_q_by_status(self):
+        """qによる状態名部分一致検索が正しく機能すること"""
+        response = self.client.get(self.search_url, {'q': 'PRESENT'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '山田太郎')
+
+    def test_search_by_individual_params(self):
+        """個別パラメータでの絞り込みが正しく機能すること"""
+        # name
+        response = self.client.get(self.search_url, {'name': '山田'})
+        self.assertEqual(len(response.data), 1)
+
+        # employee_no
+        response = self.client.get(self.search_url, {'employee_no': 'e0002'}) # 大文字小文字無視
+        self.assertEqual(len(response.data), 1)
+
+        # status
+        response = self.client.get(self.search_url, {'status': 'out'}) # 大文字小文字無視
+        self.assertEqual(len(response.data), 1)
+
+        # department
+        response = self.client.get(self.search_url, {'department': self.dept_dev.id})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '山田太郎')
+
+        # group
+        response = self.client.get(self.search_url, {'group': self.group_sales1.id})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '佐藤花子')
+
