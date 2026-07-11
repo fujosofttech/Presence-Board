@@ -15,7 +15,7 @@ urlpatterns = [
     # Swagger UI (開発者向け)
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
 
-    # API v1 (各アプリを追加予定)
+    # API v1
     # path('api/v1/', include('apps.presence.urls')),
-    # path('api/v1/', include('apps.employees.urls')),
+    path('api/v1/', include('apps.employees.urls')),
 ]
