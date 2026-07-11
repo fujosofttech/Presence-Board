@@ -31,7 +31,7 @@
             
             <div class="d-flex align-center flex-wrap gap-4 mt-2 mt-sm-0">
               <!-- 状態表示チップ -->
-              <v-chip :color="getStatusColor(myPresence.status)" variant="flat" size="large" class="font-weight-bold">
+              <v-chip :color="getStatusColor(myPresence.status)" variant="flat" size="large" class="font-weight-bold text-white">
                 <v-icon :icon="getStatusIcon(myPresence.status)" class="mr-1" />
                 {{ getStatusLabel(myPresence.status) }}
               </v-chip>
@@ -40,9 +40,20 @@
               <div class="text-body-1 ml-4" v-if="myPresence.destination">
                 <span class="text-grey-darken-1">行先:</span> <strong>{{ myPresence.destination }}</strong>
               </div>
-              <div class="text-body-1 ml-4" v-if="myPresence.return_time">
-                <span class="text-grey-darken-1">戻り予定:</span> <strong>{{ myPresence.return_time }}</strong>
+              <div class="text-body-1 ml-4" v-if="myPresence.end_datetime">
+                <span class="text-grey-darken-1">戻り予定:</span> <strong>{{ formatTimeOnly(myPresence.end_datetime) }}</strong>
               </div>
+
+              <!-- 状況更新ボタン -->
+              <v-btn
+                color="teal-darken-2"
+                prepend-icon="mdi-pencil"
+                class="ml-6 font-weight-bold text-white"
+                elevation="1"
+                @click="openUpdateDialog"
+              >
+                状況を更新
+              </v-btn>
             </div>
           </v-card-text>
         </v-card>
@@ -131,13 +142,13 @@
 
                   <!-- 予定 -->
                   <td class="text-grey-darken-2">
-                    <span v-if="emp.presence.return_time">{{ emp.presence.return_time }} まで</span>
+                    <span v-if="emp.presence.end_datetime">{{ formatTimeOnly(emp.presence.end_datetime) }} まで</span>
                     <span v-else>－</span>
                   </td>
 
                   <!-- 更新時刻 -->
                   <td class="text-right text-caption text-grey">
-                    {{ emp.presence.updated_at || '－' }}
+                    {{ formatTimeOnly(emp.presence.updated_at) }}
                   </td>
                 </tr>
                 <tr v-if="group.employees.length === 0">
@@ -159,20 +170,129 @@
 
       </v-col>
     </v-row>
+
+    <!-- 状況更新ダイアログ -->
+    <v-dialog v-model="dialog" max-width="600px" persistent>
+      <v-card class="rounded-lg">
+        <v-card-title class="bg-teal-darken-3 text-white py-4 d-flex align-center">
+          <v-icon icon="mdi-pencil-box-outline" class="mr-2" />
+          <span class="font-weight-bold text-h6">自分の状況を更新</span>
+          <v-spacer></v-spacer>
+          <v-btn icon="mdi-close" variant="text" color="white" @click="closeUpdateDialog"></v-btn>
+        </v-card-title>
+
+        <v-card-text class="py-6 px-6">
+          <div class="mb-4">
+            <label class="text-subtitle-2 font-weight-bold text-grey-darken-3 d-block mb-2">ステータス</label>
+            <v-row dense>
+              <v-col
+                v-for="(def, key) in STATUS_DEFINITIONS"
+                :key="key"
+                cols="6"
+                sm="3"
+              >
+                <v-btn
+                  block
+                  :color="form.status === key ? def.color : 'grey-lighten-4'"
+                  :variant="form.status === key ? 'flat' : 'outlined'"
+                  :class="{'text-white': form.status === key, 'text-grey-darken-2': form.status !== key}"
+                  class="font-weight-bold py-2"
+                  @click="selectStatus(key)"
+                >
+                  <v-icon :icon="def.icon" class="mr-1" size="small" />
+                  {{ def.label }}
+                </v-btn>
+              </v-col>
+            </v-row>
+          </div>
+
+          <!-- 行先入力 (状態ルールに応じて表示) -->
+          <v-row v-if="statusRule.requiresDestination !== 'disabled'">
+            <v-col cols="12">
+              <v-text-field
+                v-model="form.destination"
+                :label="'行先' + (statusRule.requiresDestination === 'required' ? ' (必須)' : ' (任意)')"
+                :rules="[v => (statusRule.requiresDestination !== 'required' || !!v) || '行先を入力してください']"
+                prepend-inner-icon="mdi-map-marker-outline"
+                variant="outlined"
+                color="teal"
+                clearable
+              ></v-text-field>
+            </v-col>
+          </v-row>
+
+          <!-- 戻り予定時間入力 (状態ルールに応じて表示) -->
+          <v-row v-if="statusRule.requiresReturnTime !== 'disabled'">
+            <v-col cols="12">
+              <v-text-field
+                v-model="form.returnTimeRaw"
+                :label="'戻り予定時間' + (statusRule.requiresReturnTime === 'required' ? ' (必須)' : ' (任意)')"
+                :rules="[v => (statusRule.requiresReturnTime !== 'required' || !!v) || '戻り予定時間を入力してください']"
+                prepend-inner-icon="mdi-clock-outline"
+                type="time"
+                variant="outlined"
+                color="teal"
+              ></v-text-field>
+            </v-col>
+          </v-row>
+
+          <v-alert
+            v-if="errorMessage"
+            type="error"
+            variant="tonal"
+            class="mt-4"
+            density="compact"
+          >
+            {{ errorMessage }}
+          </v-alert>
+        </v-card-text>
+
+        <v-card-actions class="px-6 pb-6 pt-0">
+          <v-spacer></v-spacer>
+          <v-btn
+            color="grey-darken-1"
+            variant="text"
+            class="font-weight-bold mr-2"
+            @click="closeUpdateDialog"
+          >
+            キャンセル
+          </v-btn>
+          <v-btn
+            color="teal-darken-2"
+            variant="flat"
+            class="font-weight-bold text-white px-6"
+            :loading="submitting"
+            @click="submitUpdate"
+          >
+            保存する
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-container>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '../stores/auth'
+import { usePresenceSSE } from '../composables/usePresenceSSE'
+import {
+  STATUS_DEFINITIONS,
+  getStatusColor,
+  getStatusIcon,
+  getStatusLabel,
+  getStatusDefinition,
+  StatusInfo
+} from '../utils/status'
 import api from '../services/api'
 
 // インターフェース定義
 interface Presence {
   status: string
   destination: string
-  return_time: string
-  updated_at: string
+  start_datetime: string | null
+  end_datetime: string | null
+  updated_at: string | null
 }
 
 interface Employee {
@@ -187,7 +307,7 @@ interface Employee {
   work_location: number | null
   phone_number: string
   display_order: number
-  presence: Presence // APIと結合するまで仮で格納する
+  presence: Presence
 }
 
 interface Department {
@@ -213,8 +333,20 @@ const selectedDepartment = ref<number | null>(null)
 const searchQuery = ref('')
 const activeHighlights = ref<Record<string, boolean>>({})
 
-// SSE 接続管理
-let eventSource: EventSource | null = null
+// ダイアログ・フォーム状態
+const dialog = ref(false)
+const submitting = ref(false)
+const errorMessage = ref('')
+const form = ref({
+  status: 'PRESENT',
+  destination: '',
+  returnTimeRaw: ''
+})
+
+// 選択中のステータスの定義ルール
+const statusRule = computed<StatusInfo>(() => {
+  return getStatusDefinition(form.value.status)
+})
 
 // ログイン中の「自分」の情報
 const myInfo = computed(() => {
@@ -229,8 +361,9 @@ const myPresence = computed<Presence>(() => {
   return {
     status: 'PRESENT',
     destination: '',
-    return_time: '',
-    updated_at: ''
+    start_datetime: null,
+    end_datetime: null,
+    updated_at: null
   }
 })
 
@@ -254,8 +387,6 @@ const filteredGroups = computed<GroupWithEmployees[]>(() => {
 
   // 2. 所属グループごとに分類
   filteredEmployees.forEach(emp => {
-    // ログイン中の「自分」は最上部に固定表示するため、グループ一覧側からは除外（または両方表示するが、仕様の「最上部固定」を満たすために一旦除外または非表示にするか、もしくは最上部にカード表示するのみでグループリスト内にも表示するか。ここではグループリスト内にも表示しつつ、最上部にカード表示する形が一般的で分かりやすいため、両方に表示します）
-    
     if (!groupsMap[emp.group]) {
       groupsMap[emp.group] = {
         id: emp.group,
@@ -288,131 +419,170 @@ const filteredGroups = computed<GroupWithEmployees[]>(() => {
   })
 })
 
-// 初期データの読み込み
+// 初期データ（一覧）の読み込み
 const loadInitialData = async () => {
   try {
     // 1. 課一覧の取得
     const deptRes = await api.get('/departments/')
     departments.value = [{ id: null, name: '全課' }, ...deptRes.data]
 
-    // 2. 社員一覧の取得
-    const empRes = await api.get('/employees/')
-    
-    // 現在は Presence モデルが未実装のため、API から取得したデータに仮の presence 情報を付与する
-    employees.value = empRes.data.map((emp: any) => {
-      // テストデータ用に一部の社員にダミーの在籍状況を割り当てる
-      let status = 'PRESENT'
-      let destination = ''
-      let return_time = ''
-      
-      if (emp.employee_no === 'E0002') {
-        status = 'OUT'
-        destination = '〇〇商事'
-        return_time = '15:00'
-      } else if (emp.employee_no === 'E0003') {
-        status = 'REMOTE'
-      }
-
-      return {
-        ...emp,
-        presence: {
-          status,
-          destination,
-          return_time,
-          updated_at: '10:30'
-        }
-      }
-    })
+    // 2. 社員・在籍一覧の取得
+    const presRes = await api.get('/presence/')
+    employees.value = presRes.data
   } catch (error) {
     console.error('Failed to load initial data:', error)
   }
 }
 
-// 状態に応じたスタイル値のマッピング
-const getStatusColor = (status: string) => {
-  switch (status) {
-    case 'PRESENT': return 'green'
-    case 'CUSTOMER': return 'cyan'
-    case 'OUT': return 'orange'
-    case 'MEETING': return 'blue'
-    case 'REMOTE': return 'light-green'
-    case 'HOLIDAY': return 'grey'
-    case 'LEAVE':
-    case 'DIRECT_HOME': return 'red'
-    default: return 'grey'
-  }
-}
-
-const getStatusIcon = (status: string) => {
-  switch (status) {
-    case 'PRESENT': return 'mdi-checkbox-marked-circle-outline'
-    case 'CUSTOMER': return 'mdi-briefcase-outline'
-    case 'OUT': return 'mdi-walk'
-    case 'MEETING': return 'mdi-account-multiple'
-    case 'REMOTE': return 'mdi-home-account'
-    case 'HOLIDAY': return 'mdi-island'
-    case 'LEAVE': return 'mdi-logout'
-    case 'DIRECT_HOME': return 'mdi-arrow-right-bold-box-outline'
-    default: return 'mdi-help-circle-outline'
-  }
-}
-
-const getStatusLabel = (status: string) => {
-  switch (status) {
-    case 'PRESENT': return '在席'
-    case 'CUSTOMER': return '客先'
-    case 'OUT': return '外出'
-    case 'MEETING': return '会議'
-    case 'REMOTE': return '在宅'
-    case 'HOLIDAY': return '休暇'
-    case 'LEAVE': return '退社'
-    case 'DIRECT_HOME': return '直帰'
-    default: return status
-  }
-}
-
-// SSE ストリーム接続設定
-const setupSSE = () => {
-  // バックエンドの SSE エンドポイントに接続
-  eventSource = new EventSource('/api/v1/events/stream/')
-
-  // 状態更新イベント受信時の処理
-  eventSource.addEventListener('presence_updated', (event: MessageEvent) => {
-    try {
-      const data = JSON.parse(event.data)
-      const { employee_no, status, destination, return_time, updated_at } = data
-
-      // 該当する社員の presence 情報を更新
-      const emp = employees.value.find(e => e.employee_no === employee_no)
-      if (emp) {
-        emp.presence = { status, destination, return_time, updated_at }
-        
-        // 該当行をハイライト表示する
-        activeHighlights.value[employee_no] = true
-        setTimeout(() => {
-          activeHighlights.value[employee_no] = false
-        }, 1200)
-      }
-    } catch (e) {
-      console.error('Failed to parse SSE payload:', e)
+// 時刻表示のみのフォーマット（HH:mm）
+const formatTimeOnly = (isoString: string | null) => {
+  if (!isoString) return '－'
+  try {
+    const d = new Date(isoString)
+    if (isNaN(d.getTime())) {
+      // 既に "10:30" などの文字列の場合はそのまま返す
+      return isoString
     }
-  })
-
-  eventSource.onerror = (err) => {
-    console.warn('SSE connection error. Retrying...', err)
+    const hh = String(d.getHours()).padStart(2, '0')
+    const mm = String(d.getMinutes()).padStart(2, '0')
+    return `${hh}:${mm}`
+  } catch (e) {
+    return isoString
   }
 }
+
+// 戻り予定時間（HH:mm）の抽出
+const extractTime = (isoString: string | null) => {
+  if (!isoString) return ''
+  try {
+    const d = new Date(isoString)
+    if (isNaN(d.getTime())) return ''
+    const hh = String(d.getHours()).padStart(2, '0')
+    const mm = String(d.getMinutes()).padStart(2, '0')
+    return `${hh}:${mm}`
+  } catch (e) {
+    return ''
+  }
+}
+
+// 送信用に現在日付と入力時間を結合したISO8601文字列を生成
+const generateISODatetime = (timeStr: string) => {
+  if (!timeStr) return null
+  const today = new Date()
+  const yyyy = today.getFullYear()
+  const mm = String(today.getMonth() + 1).padStart(2, '0')
+  const dd = String(today.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}T${timeStr}:00+09:00` // JSTタイムゾーン
+}
+
+// 状況更新ダイアログを開く
+const openUpdateDialog = () => {
+  if (myPresence.value) {
+    form.value.status = myPresence.value.status
+    form.value.destination = myPresence.value.destination || ''
+    form.value.returnTimeRaw = extractTime(myPresence.value.end_datetime)
+  }
+  errorMessage.value = ''
+  dialog.value = true
+}
+
+const closeUpdateDialog = () => {
+  dialog.value = false
+  errorMessage.value = ''
+}
+
+const selectStatus = (statusKey: string) => {
+  form.value.status = statusKey
+  
+  // 状態が切り替わったら、不要な項目のフォーム入力をクリアする
+  const def = getStatusDefinition(statusKey)
+  if (def.requiresDestination === 'disabled') {
+    form.value.destination = ''
+  }
+  if (def.requiresReturnTime === 'disabled') {
+    form.value.returnTimeRaw = ''
+  }
+}
+
+// 状況更新の送信
+const submitUpdate = async () => {
+  errorMessage.value = ''
+  
+  // フロントエンド簡易チェック
+  if (statusRule.value.requiresDestination === 'required' && !form.value.destination) {
+    errorMessage.value = '行先を入力してください。'
+    return
+  }
+  if (statusRule.value.requiresReturnTime === 'required' && !form.value.returnTimeRaw) {
+    errorMessage.value = '戻り予定時間を入力してください。'
+    return
+  }
+
+  submitting.value = true
+  try {
+    const payload = {
+      status: form.value.status,
+      destination: form.value.destination,
+      return_time: generateISODatetime(form.value.returnTimeRaw)
+    }
+
+    const res = await api.patch('/presence/me/', payload)
+    
+    // 成功時、ローカルのデータも更新する（APIレスポンスから反映）
+    const myEmp = employees.value.find(e => e.employee_no === authStore.currentUserNo)
+    if (myEmp) {
+      myEmp.presence = res.data
+    }
+
+    closeUpdateDialog()
+  } catch (error: any) {
+    console.error('Failed to update presence:', error)
+    if (error.response && error.response.data && error.response.data.message) {
+      errorMessage.value = error.response.data.message
+    } else {
+      errorMessage.value = '更新に失敗しました。時間や入力内容を確認してください。'
+    }
+  } finally {
+    submitting.value = false
+  }
+}
+
+// SSE イベント受信時のコールバック
+const handlePresenceUpdated = (data: any) => {
+  const { employee_no, status: empStatus, destination, return_time, updated_at } = data
+  
+  const emp = employees.value.find(e => e.employee_no === employee_no)
+  if (emp) {
+    emp.presence = {
+      status: empStatus,
+      destination,
+      start_datetime: updated_at,
+      end_datetime: return_time,
+      updated_at
+    }
+    
+    // 該当行をハイライト表示する
+    activeHighlights.value[employee_no] = true
+    setTimeout(() => {
+      activeHighlights.value[employee_no] = false
+    }, 1200)
+  }
+}
+
+// Composable の利用
+const { connect } = usePresenceSSE(handlePresenceUpdated)
 
 onMounted(() => {
   loadInitialData()
-  setupSSE()
+  connect() // SSEの接続開始
 })
+</script>
 
-onUnmounted(() => {
-  if (eventSource) {
-    eventSource.close()
-  }
-})
+<script lang="ts">
+// Vueコンポーネントオプション（必要に応じて）
+export default {
+  name: 'PresenceBoard'
+}
 </script>
 
 <style scoped>
