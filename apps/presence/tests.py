@@ -3,7 +3,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 from django.contrib.auth.models import User
 from apps.employees.models import Department, Group, StatusMaster, Employee
-from apps.presence.models import Presence, PresenceHistory, FavoriteDestination
+from apps.presence.models import Presence, PresenceHistory, FavoriteDestination, ScheduledStatus
 from apps.presence.events import event_publisher, MemoryEventPublisher
 from django.utils import timezone
 from datetime import timedelta
@@ -334,4 +334,147 @@ class RecentDestinationAPITestCase(APITestCase):
         self.assertEqual(len(response.data), 2)
         self.assertEqual(response.data[0]['destination'], "B社")
         self.assertEqual(response.data[1]['destination'], "A社")
+
+
+class ScheduledStatusAPITestCase(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', email='test@example.com', password='password123')
+        self.client.force_login(self.user)
+        self.department = Department.objects.create(name='開発部', display_order=1)
+        self.group = Group.objects.create(department=self.department, name='開発1G', display_order=1)
+        self.employee = Employee.objects.create(
+            employee_no='E0001', name='山田太郎', email='test@example.com',
+            department=self.department, group=self.group, display_order=1
+        )
+        self.status_out = StatusMaster.objects.create(name='OUT', display_order=1)
+        self.status_present = StatusMaster.objects.create(name='PRESENT', display_order=2)
+        self.status_direct_home = StatusMaster.objects.create(name='DIRECT_HOME', display_order=3)
+        self.list_url = reverse('presence:scheduled-status-list')
+
+    def test_post_scheduled_status(self):
+        target_date = timezone.now().date() + timedelta(days=1)
+        data = {
+            "target_date": str(target_date),
+            "status": "OUT",
+            "destination": "得意先A",
+            "start_time": "13:00",
+            "end_time": "15:00",
+            "memo": "訪問"
+        }
+        response = self.client.post(self.list_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(ScheduledStatus.objects.count(), 1)
+        
+        scheduled = ScheduledStatus.objects.first()
+        self.assertEqual(scheduled.destination, "得意先A")
+
+    def test_post_past_date_error(self):
+        target_date = timezone.now().date() - timedelta(days=1)
+        data = {
+            "target_date": str(target_date),
+            "status": "PRESENT"
+        }
+        response = self.client.post(self.list_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("target_date", response.data['details'])
+
+    def test_post_duplicate_error(self):
+        target_date = timezone.now().date() + timedelta(days=1)
+        ScheduledStatus.objects.create(
+            employee=self.employee,
+            target_date=target_date,
+            status=self.status_present
+        )
+        data = {
+            "target_date": str(target_date),
+            "status": "OUT",
+            "destination": "得意先A",
+            "start_time": "13:00",
+            "end_time": "15:00"
+        }
+        response = self.client.post(self.list_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['error_code'], "E0004")
+
+    def test_post_validation_error(self):
+        target_date = timezone.now().date() + timedelta(days=1)
+        data = {
+            "target_date": str(target_date),
+            "status": "OUT",
+            "destination": "", # OUT requires destination
+            "end_time": None # OUT requires end_time
+        }
+        response = self.client.post(self.list_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("destination", response.data['details'])
+        self.assertIn("end_time", response.data['details'])
+
+    def test_get_scheduled_status_list(self):
+        today = timezone.now().date()
+        past = today - timedelta(days=1)
+        future = today + timedelta(days=31)
+        valid_date = today + timedelta(days=5)
+
+        ScheduledStatus.objects.create(employee=self.employee, target_date=past, status=self.status_present)
+        ScheduledStatus.objects.create(employee=self.employee, target_date=valid_date, status=self.status_present)
+        ScheduledStatus.objects.create(employee=self.employee, target_date=future, status=self.status_present)
+        
+        response = self.client.get(self.list_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Should only return valid_date
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['target_date'], str(valid_date))
+
+    def test_patch_scheduled_status(self):
+        target_date = timezone.now().date() + timedelta(days=2)
+        scheduled = ScheduledStatus.objects.create(
+            employee=self.employee,
+            target_date=target_date,
+            status=self.status_present
+        )
+        detail_url = reverse('presence:scheduled-status-detail', kwargs={'pk': scheduled.id})
+        data = {
+            "status": "OUT",
+            "destination": "新しい場所",
+            "start_time": "10:00",
+            "end_time": "12:00"
+        }
+        response = self.client.patch(detail_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        scheduled.refresh_from_db()
+        self.assertEqual(scheduled.status.name, "OUT")
+        self.assertEqual(scheduled.destination, "新しい場所")
+
+    def test_patch_past_date_error(self):
+        target_date = timezone.now().date() # Today is considered past/current, cannot be modified
+        scheduled = ScheduledStatus.objects.create(
+            employee=self.employee,
+            target_date=target_date,
+            status=self.status_present
+        )
+        detail_url = reverse('presence:scheduled-status-detail', kwargs={'pk': scheduled.id})
+        data = {"status": "OUT", "destination": "test", "end_time": "10:00"}
+        response = self.client.patch(detail_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['error_code'], "E0006")
+
+    def test_delete_scheduled_status(self):
+        target_date = timezone.now().date() + timedelta(days=2)
+        scheduled = ScheduledStatus.objects.create(
+            employee=self.employee,
+            target_date=target_date,
+            status=self.status_present
+        )
+        detail_url = reverse('presence:scheduled-status-detail', kwargs={'pk': scheduled.id})
+        response = self.client.delete(detail_url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        
+        scheduled.refresh_from_db()
+        self.assertIsNotNone(scheduled.deleted_at)
+
+    def test_unauthenticated(self):
+        self.client.logout()
+        response = self.client.get(self.list_url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 

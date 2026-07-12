@@ -1,6 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
-from apps.employees.models import Employee, StatusMaster
+from apps.employees.models import Employee, StatusMaster, TimestampModel
 
 class Presence(models.Model):
     """
@@ -143,3 +143,73 @@ class FavoriteDestination(models.Model):
 
     def __str__(self) -> str:
         return f"{self.employee.name} - {self.destination}"
+
+class ScheduledStatus(TimestampModel):
+    """
+    事前登録（Scheduled Status）機能
+    """
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.CASCADE,
+        related_name="scheduled_statuses",
+        verbose_name="社員",
+    )
+    target_date = models.DateField(verbose_name="対象日")
+    status = models.ForeignKey(
+        StatusMaster,
+        on_delete=models.PROTECT,
+        related_name="scheduled_statuses",
+        verbose_name="状態",
+    )
+    destination = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name="行先",
+    )
+    start_time = models.TimeField(
+        null=True,
+        blank=True,
+        verbose_name="開始時刻",
+    )
+    end_time = models.TimeField(
+        null=True,
+        blank=True,
+        verbose_name="終了時刻",
+    )
+    memo = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name="メモ",
+    )
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_scheduled_statuses",
+        verbose_name="作成者",
+    )
+    updated_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="updated_scheduled_statuses",
+        verbose_name="更新者",
+    )
+
+    class Meta:
+        db_table = "scheduled_status"
+        verbose_name = "事前登録予定"
+        verbose_name_plural = "事前登録予定一覧"
+        ordering = ["target_date", "start_time"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["employee", "target_date"],
+                condition=models.Q(deleted_at__isnull=True),
+                name="unique_scheduled_status"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.employee.name} - {self.target_date} ({self.status.name})"
