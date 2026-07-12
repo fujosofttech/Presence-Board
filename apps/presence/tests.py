@@ -352,7 +352,7 @@ class ScheduledStatusAPITestCase(APITestCase):
         self.list_url = reverse('presence:scheduled-status-list')
 
     def test_post_scheduled_status(self):
-        target_date = timezone.now().date() + timedelta(days=1)
+        target_date = timezone.localdate() + timedelta(days=1)
         data = {
             "target_date": str(target_date),
             "status": "OUT",
@@ -369,7 +369,7 @@ class ScheduledStatusAPITestCase(APITestCase):
         self.assertEqual(scheduled.destination, "得意先A")
 
     def test_post_past_date_error(self):
-        target_date = timezone.now().date() - timedelta(days=1)
+        target_date = timezone.localdate() - timedelta(days=1)
         data = {
             "target_date": str(target_date),
             "status": "PRESENT"
@@ -379,7 +379,7 @@ class ScheduledStatusAPITestCase(APITestCase):
         self.assertIn("target_date", response.data['details'])
 
     def test_post_duplicate_error(self):
-        target_date = timezone.now().date() + timedelta(days=1)
+        target_date = timezone.localdate() + timedelta(days=1)
         ScheduledStatus.objects.create(
             employee=self.employee,
             target_date=target_date,
@@ -397,7 +397,7 @@ class ScheduledStatusAPITestCase(APITestCase):
         self.assertEqual(response.data['error_code'], "E0004")
 
     def test_post_validation_error(self):
-        target_date = timezone.now().date() + timedelta(days=1)
+        target_date = timezone.localdate() + timedelta(days=1)
         data = {
             "target_date": str(target_date),
             "status": "OUT",
@@ -410,7 +410,7 @@ class ScheduledStatusAPITestCase(APITestCase):
         self.assertIn("end_time", response.data['details'])
 
     def test_get_scheduled_status_list(self):
-        today = timezone.now().date()
+        today = timezone.localdate()
         past = today - timedelta(days=1)
         future = today + timedelta(days=31)
         valid_date = today + timedelta(days=5)
@@ -426,7 +426,7 @@ class ScheduledStatusAPITestCase(APITestCase):
         self.assertEqual(response.data[0]['target_date'], str(valid_date))
 
     def test_patch_scheduled_status(self):
-        target_date = timezone.now().date() + timedelta(days=2)
+        target_date = timezone.localdate() + timedelta(days=2)
         scheduled = ScheduledStatus.objects.create(
             employee=self.employee,
             target_date=target_date,
@@ -447,7 +447,7 @@ class ScheduledStatusAPITestCase(APITestCase):
         self.assertEqual(scheduled.destination, "新しい場所")
 
     def test_patch_past_date_error(self):
-        target_date = timezone.now().date() # Today is considered past/current, cannot be modified
+        target_date = timezone.localdate() # Today is considered past/current, cannot be modified
         scheduled = ScheduledStatus.objects.create(
             employee=self.employee,
             target_date=target_date,
@@ -460,7 +460,7 @@ class ScheduledStatusAPITestCase(APITestCase):
         self.assertEqual(response.data['error_code'], "E0006")
 
     def test_delete_scheduled_status(self):
-        target_date = timezone.now().date() + timedelta(days=2)
+        target_date = timezone.localdate() + timedelta(days=2)
         scheduled = ScheduledStatus.objects.create(
             employee=self.employee,
             target_date=target_date,
@@ -477,4 +477,48 @@ class ScheduledStatusAPITestCase(APITestCase):
         self.client.logout()
         response = self.client.get(self.list_url)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_patch_duplicate_error(self):
+        """PATCHで既存の日付に変更しようとした場合に重複エラーになること"""
+        date1 = timezone.localdate() + timedelta(days=2)
+        date2 = timezone.localdate() + timedelta(days=3)
+        ScheduledStatus.objects.create(employee=self.employee, target_date=date1, status=self.status_present)
+        scheduled2 = ScheduledStatus.objects.create(employee=self.employee, target_date=date2, status=self.status_present)
+
+        detail_url = reverse('presence:scheduled-status-detail', kwargs={'pk': scheduled2.id})
+        data = {"target_date": str(date1)}
+        response = self.client.patch(detail_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['error_code'], "E0004")
+
+    def test_post_edit_delete_repost(self):
+        """登録 → 編集 → 削除 → 再登録 の一連の流れが成功すること"""
+        target_date = timezone.localdate() + timedelta(days=1)
+        
+        # 1. 登録
+        data = {
+            "target_date": str(target_date),
+            "status": "OUT",
+            "destination": "初期行先",
+            "end_time": "15:00"
+        }
+        res1 = self.client.post(self.list_url, data, format='json')
+        self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
+        scheduled_id = res1.data['id']
+
+        # 2. 編集
+        detail_url = reverse('presence:scheduled-status-detail', kwargs={'pk': scheduled_id})
+        res2 = self.client.patch(detail_url, {"destination": "変更行先"}, format='json')
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+        self.assertEqual(res2.data['destination'], "変更行先")
+
+        # 3. 削除
+        res3 = self.client.delete(detail_url)
+        self.assertEqual(res3.status_code, status.HTTP_204_NO_CONTENT)
+
+        # 4. 再登録 (削除されているので同じ日付で登録できるはず)
+        data['destination'] = "再登録行先"
+        res4 = self.client.post(self.list_url, data, format='json')
+        self.assertEqual(res4.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res4.data['destination'], "再登録行先")
 

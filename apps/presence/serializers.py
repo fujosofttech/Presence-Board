@@ -2,6 +2,7 @@ from rest_framework import serializers
 from django.utils import timezone
 from apps.employees.models import Employee, StatusMaster
 from apps.presence.models import Presence, FavoriteDestination, ScheduledStatus
+from apps.presence.validators import validate_presence_data
 
 class PresenceSerializer(serializers.ModelSerializer):
     status = serializers.CharField(source='status.name')
@@ -59,33 +60,15 @@ class PresenceUpdateSerializer(serializers.Serializer):
         destination = data.get('destination', '')
         return_time = data.get('return_time')
 
-        errors = {}
-
-        # バリデーションルール
-        # | present / leave / wfh / left_office (PRESENT, LEAVE, REMOTE, HOLIDAY等) | 空である必要あり | 空である必要あり |
-        if status_name in ['PRESENT', 'LEAVE', 'REMOTE', 'HOLIDAY']:
-            if destination:
-                errors['destination'] = f"Destination must be empty for {status_name}."
-            if return_time:
-                errors['return_time'] = f"Return time must be empty for {status_name}."
+        validated = validate_presence_data(
+            status_name=status_name,
+            destination=destination,
+            end_time_name='return_time',
+            end_time_value=return_time
+        )
         
-        elif status_name == 'OUT':
-            if not destination:
-                errors['destination'] = "Destination is required for OUT."
-            if not return_time:
-                errors['return_time'] = "Return time is required for OUT."
-        
-        elif status_name in ['CUSTOMER', 'MEETING']:
-            if not destination:
-                errors['destination'] = f"Destination is required for {status_name}."
-        
-        elif status_name == 'DIRECT_HOME':
-            if not destination:
-                errors['destination'] = "Destination is required for DIRECT_HOME."
-            data['return_time'] = None
-
-        if errors:
-            raise serializers.ValidationError(errors)
+        data['destination'] = validated['destination']
+        data['return_time'] = validated['return_time']
 
         return data
 
@@ -115,37 +98,21 @@ class ScheduledStatusSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         target_date = data.get('target_date')
-        if target_date and target_date < timezone.now().date():
+        if target_date and target_date < timezone.localdate():
             raise serializers.ValidationError({"target_date": "今日以前の日付は登録できません。"})
 
         status_name = data.get('status')
         destination = data.get('destination', '')
         end_time = data.get('end_time')
 
-        errors = {}
-
-        if status_name in ['PRESENT', 'LEAVE', 'REMOTE', 'HOLIDAY']:
-            if destination:
-                errors['destination'] = f"Destination must be empty for {status_name}."
-            if end_time:
-                errors['end_time'] = f"End time must be empty for {status_name}."
+        validated = validate_presence_data(
+            status_name=status_name,
+            destination=destination,
+            end_time_name='end_time',
+            end_time_value=end_time
+        )
         
-        elif status_name == 'OUT':
-            if not destination:
-                errors['destination'] = "Destination is required for OUT."
-            if not end_time:
-                errors['end_time'] = "End time is required for OUT."
-        
-        elif status_name in ['CUSTOMER', 'MEETING']:
-            if not destination:
-                errors['destination'] = f"Destination is required for {status_name}."
-        
-        elif status_name == 'DIRECT_HOME':
-            if not destination:
-                errors['destination'] = "Destination is required for DIRECT_HOME."
-            data['end_time'] = None
-
-        if errors:
-            raise serializers.ValidationError(errors)
+        data['destination'] = validated['destination']
+        data['end_time'] = validated['end_time']
 
         return data

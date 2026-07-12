@@ -23,6 +23,7 @@ from .serializers import (
     FavoriteDestinationCreateSerializer,
     ScheduledStatusSerializer
 )
+from .services.current_employee import get_current_employee
 
 
 class SSEEventStreamView(APIView):
@@ -88,7 +89,7 @@ class MyPresenceUpdateView(APIView):
 
     def patch(self, request, *args, **kwargs):
         try:
-            employee = Employee.objects.get(email=request.user.email, deleted_at__isnull=True)
+            employee = get_current_employee(request)
         except Employee.DoesNotExist:
             return Response(
                 {
@@ -221,7 +222,7 @@ class FavoriteDestinationListView(APIView):
 
     def get(self, request, *args, **kwargs):
         try:
-            employee = Employee.objects.get(email=request.user.email, deleted_at__isnull=True)
+            employee = get_current_employee(request)
         except Employee.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
             
@@ -231,7 +232,7 @@ class FavoriteDestinationListView(APIView):
 
     def post(self, request, *args, **kwargs):
         try:
-            employee = Employee.objects.get(email=request.user.email, deleted_at__isnull=True)
+            employee = get_current_employee(request)
         except Employee.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
             
@@ -259,7 +260,7 @@ class FavoriteDestinationDetailView(APIView):
 
     def delete(self, request, pk, *args, **kwargs):
         try:
-            employee = Employee.objects.get(email=request.user.email, deleted_at__isnull=True)
+            employee = get_current_employee(request)
             favorite = FavoriteDestination.objects.get(id=pk, employee=employee)
             favorite.delete()
             return Response(status=status.HTTP_204_NO_CONTENT)
@@ -274,7 +275,7 @@ class RecentDestinationListView(APIView):
 
     def get(self, request, *args, **kwargs):
         try:
-            employee = Employee.objects.get(email=request.user.email, deleted_at__isnull=True)
+            employee = get_current_employee(request)
         except Employee.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
             
@@ -298,11 +299,11 @@ class ScheduledStatusListCreateView(APIView):
 
     def get(self, request, *args, **kwargs):
         try:
-            employee = Employee.objects.get(email=request.user.email, deleted_at__isnull=True)
+            employee = get_current_employee(request)
         except Employee.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
-        today = timezone.now().date()
+        today = timezone.localdate()
         thirty_days_later = today + timedelta(days=30)
 
         scheduled = ScheduledStatus.objects.filter(
@@ -317,7 +318,7 @@ class ScheduledStatusListCreateView(APIView):
 
     def post(self, request, *args, **kwargs):
         try:
-            employee = Employee.objects.get(email=request.user.email, deleted_at__isnull=True)
+            employee = get_current_employee(request)
         except Employee.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
@@ -363,7 +364,7 @@ class ScheduledStatusDetailView(APIView):
 
     def patch(self, request, pk, *args, **kwargs):
         try:
-            employee = Employee.objects.get(email=request.user.email, deleted_at__isnull=True)
+            employee = get_current_employee(request)
         except Employee.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
@@ -372,7 +373,7 @@ class ScheduledStatusDetailView(APIView):
             return Response({"error_code": "E0005", "message": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
         # 対象日より前のみ変更可能
-        if scheduled.target_date <= timezone.now().date():
+        if scheduled.target_date <= timezone.localdate():
             return Response(
                 {"error_code": "E0006", "message": "当日または過去の予定は変更できません。"},
                 status=status.HTTP_400_BAD_REQUEST
@@ -420,7 +421,7 @@ class ScheduledStatusDetailView(APIView):
 
     def delete(self, request, pk, *args, **kwargs):
         try:
-            employee = Employee.objects.get(email=request.user.email, deleted_at__isnull=True)
+            employee = get_current_employee(request)
         except Employee.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
@@ -428,7 +429,7 @@ class ScheduledStatusDetailView(APIView):
         if not scheduled:
             return Response({"error_code": "E0005", "message": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        if scheduled.target_date <= timezone.now().date():
+        if scheduled.target_date <= timezone.localdate():
             return Response(
                 {"error_code": "E0006", "message": "当日または過去の予定は取消できません。"},
                 status=status.HTTP_400_BAD_REQUEST
