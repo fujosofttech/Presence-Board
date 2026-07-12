@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from apps.employees.models import Employee, StatusMaster
-from apps.presence.models import Presence
+from apps.presence.models import Presence, FavoriteDestination
 
 class PresenceSerializer(serializers.ModelSerializer):
     status = serializers.CharField(source='status.name')
@@ -87,3 +87,14 @@ class PresenceUpdateSerializer(serializers.Serializer):
             raise serializers.ValidationError(errors)
 
         return data
+
+
+class FavoriteDestinationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FavoriteDestination
+        fields = ['id', 'destination', 'display_order']
+
+class FavoriteDestinationCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FavoriteDestination
+        fields = ['destination', 'display_order']

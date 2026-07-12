@@ -109,3 +109,37 @@ class PresenceHistory(models.Model):
 
     def __str__(self) -> str:
         return f"{self.employee.name} - {self.status.name} ({self.created_at})"
+
+
+class FavoriteDestination(models.Model):
+    """
+    お気に入り行先テンプレート
+    """
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.CASCADE,
+        related_name="favorite_destinations",
+        verbose_name="社員",
+    )
+    destination = models.CharField(
+        max_length=255,
+        verbose_name="行先名",
+    )
+    display_order = models.PositiveIntegerField(
+        default=0,
+        verbose_name="表示順",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="作成日時")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="更新日時")
+
+    class Meta:
+        db_table = "favorite_destination"
+        verbose_name = "お気に入り行先"
+        verbose_name_plural = "お気に入り行先一覧"
+        ordering = ["display_order", "-created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["employee", "destination"], name="unique_favorite_destination")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.employee.name} - {self.destination}"
