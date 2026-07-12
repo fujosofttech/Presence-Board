@@ -239,6 +239,32 @@ class PresenceSearchAPITestCase(APITestCase):
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]['name'], '山田太郎')
 
+    def test_search_q_natural_language(self):
+        """自然言語を意識したq検索（敬称除外、部署名検索、日本語状態名検索、複数語AND検索）が動作すること"""
+        # 1. 敬称除外テスト
+        response = self.client.get(self.search_url, {'q': '山田さん'})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '山田太郎')
+
+        # 2. 部署名検索テスト
+        response = self.client.get(self.search_url, {'q': '営業部'})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '佐藤花子')
+
+        # 3. 日本語状態名検索テスト
+        response = self.client.get(self.search_url, {'q': '在籍'})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '山田太郎')
+
+        # 4. 複数語 AND 検索テスト
+        response = self.client.get(self.search_url, {'q': '今日 営業部 外出'})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '佐藤花子')
+
+        # マッチしない組み合わせ
+        response = self.client.get(self.search_url, {'q': '山田 外出'})
+        self.assertEqual(len(response.data), 0)
+
     def test_search_by_individual_params(self):
         """個別パラメータでの絞り込みが正しく機能すること"""
         # name
