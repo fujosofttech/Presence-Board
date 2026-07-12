@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.utils import timezone
 from apps.employees.models import Employee, StatusMaster
-from apps.presence.models import Presence, FavoriteDestination, ScheduledStatus
+from apps.presence.models import Presence, FavoriteDestination, ScheduledStatus, PresenceHistory
 from apps.presence.validators import validate_presence_data
 
 class PresenceSerializer(serializers.ModelSerializer):
@@ -130,3 +130,31 @@ class ScheduledStatusSerializer(serializers.ModelSerializer):
         data['end_time'] = validated['end_time']
 
         return data
+
+
+class PresenceHistorySerializer(serializers.ModelSerializer):
+    employee_id = serializers.IntegerField(source='employee.id')
+    employee_name = serializers.CharField(source='employee.name')
+    employee_no = serializers.CharField(source='employee.employee_no')
+    status = serializers.CharField(source='status.name')
+    updated_by_username = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PresenceHistory
+        fields = [
+            'id',
+            'employee_id',
+            'employee_name',
+            'employee_no',
+            'status',
+            'destination',
+            'start_datetime',
+            'end_datetime',
+            'updated_by_username',
+            'created_at'
+        ]
+
+    def get_updated_by_username(self, obj):
+        if obj.updated_by:
+            return obj.updated_by.username
+        return None

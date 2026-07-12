@@ -23,7 +23,8 @@ from .serializers import (
     PresenceUpdateSerializer,
     FavoriteDestinationSerializer,
     FavoriteDestinationCreateSerializer,
-    ScheduledStatusSerializer
+    ScheduledStatusSerializer,
+    PresenceHistorySerializer
 )
 from .services.current_employee import get_current_employee
 
@@ -482,3 +483,66 @@ class ScheduledStatusDetailView(APIView):
         scheduled.save()
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PresenceHistorySearchView(APIView):
+    """
+    状態変更履歴の検索API
+    GET /api/v1/presence/history/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        from datetime import datetime
+        from django.db import models
+        queryset = PresenceHistory.objects.select_related('employee', 'status', 'updated_by').all()
+
+        # 検索条件：社員
+        employee_param = request.query_params.get('employee')
+        if employee_param:
+            if employee_param.isdigit():
+                queryset = queryset.filter(employee_id=int(employee_param))
+            else:
+                queryset = queryset.filter(
+                    models.Q(employee__employee_no=employee_param) | 
+                    models.Q(employee__name__icontains=employee_param)
+                )
+
+        # 検索条件：期間 (start_date, end_date)
+        start_date = request.query_params.get('start_date')
+        if start_date:
+            try:
+                start_dt = timezone.make_aware(datetime.strptime(start_date, '%Y-%m-%d'))
+                queryset = queryset.filter(created_at__gte=start_dt)
+            except ValueError:
+                return Response(
+                    {"error_code": "E0001", "message": "開始日の形式が正しくありません。(YYYY-MM-DD)"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        end_date = request.query_params.get('end_date')
+        if end_date:
+            try:
+                end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+                end_dt = end_dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+                end_dt = timezone.make_aware(end_dt)
+                queryset = queryset.filter(created_at__lte=end_dt)
+            except ValueError:
+                return Response(
+                    {"error_code": "E0001", "message": "終了日の形式が正しくありません。(YYYY-MM-DD)"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # 検索条件：状態
+        status_param = request.query_params.get('status')
+        if status_param:
+            if status_param.isdigit():
+                queryset = queryset.filter(status_id=int(status_param))
+            else:
+                queryset = queryset.filter(status__name__iexact=status_param)
+
+        # 最新順に並べる
+        queryset = queryset.order_by('-created_at')
+
+        serializer = PresenceHistorySerializer(queryset, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
