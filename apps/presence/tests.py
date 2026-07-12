@@ -730,8 +730,7 @@ class ApplyScheduledStatusTestCase(APITestCase):
         # Historyが増えていないことを確認
         new_history_count = PresenceHistory.objects.filter(employee=self.employee).count()
         self.assertEqual(new_history_count, 1)
-<<<<<<< Updated upstream
-=======
+
 
     def test_batch_broadcast_on_apply_scheduled_status(self):
         """自動反映バッチの実行時に SSE 経由でステータス更新イベントがブロードキャストされることを確認"""
@@ -863,29 +862,30 @@ class AuditLogAndHistorySearchViewTestCase(APITestCase):
         # 1. 絞り込みなしで全件取得
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 2)
+        self.assertEqual(response.data['count'], 2)
+        self.assertEqual(len(response.data['results']), 2)
 
         # 2. 社員(ID)で絞り込み
         response = self.client.get(url, {'employee': self.employee.id})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 2)
+        self.assertEqual(response.data['count'], 2)
 
         # 3. 社員番号で絞り込み
         response = self.client.get(url, {'employee': 'E9999'})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 2)
+        self.assertEqual(response.data['count'], 2)
 
         # 4. 状態(ID)で絞り込み
         response = self.client.get(url, {'status': self.status_out.id})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['destination'], '客先A')
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['destination'], '客先A')
 
         # 5. 状態名で絞り込み
         response = self.client.get(url, {'status': 'PRESENT'})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['destination'], '自社')
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['destination'], '自社')
 
         # 6. 期間(start_date / end_date)で絞り込み
         tomorrow_str = (timezone.localdate() + timedelta(days=1)).strftime('%Y-%m-%d')
@@ -893,9 +893,110 @@ class AuditLogAndHistorySearchViewTestCase(APITestCase):
 
         response = self.client.get(url, {'start_date': yesterday_str, 'end_date': tomorrow_str})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 2)
+        self.assertEqual(response.data['count'], 2)
 
         # 7. 不正な日付形式
         response = self.client.get(url, {'start_date': 'invalid-date'})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data['error_code'], 'E0001')
+
+    def test_prune_old_data_command(self):
+        """prune_old_data コマンドが指定日数を経過した履歴と監査ログを正しく削除することを確認"""
+        # 1. 閾値より古いデータ
+        old_time = timezone.now() - timedelta(days=400)
+        h_old = PresenceHistory.objects.create(
+            employee=self.employee,
+            status=self.status_present,
+            destination="大昔",
+        )
+        PresenceHistory.objects.filter(id=h_old.id).update(created_at=old_time)
+
+        audit_old = AuditLog.objects.create(
+            action='LOGIN_SUCCESS',
+            description='大昔のログイン',
+        )
+        AuditLog.objects.filter(id=audit_old.id).update(created_at=old_time)
+
+        # 2. 新しいデータ (閾値以内)
+        h_new = PresenceHistory.objects.create(
+            employee=self.employee,
+            status=self.status_present,
+            destination="最近",
+        )
+        audit_new = AuditLog.objects.create(
+            action='LOGIN_SUCCESS',
+            description='最近のログイン',
+        )
+
+        # コマンド実行
+        out = StringIO()
+        call_command('prune_old_data', stdout=out)
+        
+        # 削除のログ文が出力されているか
+        self.assertIn("PresenceHistory", out.getvalue())
+        self.assertIn("AuditLog", out.getvalue())
+
+        # 古いデータが削除され、新しいデータが残っているか
+        self.assertFalse(PresenceHistory.objects.filter(id=h_old.id).exists())
+        self.assertTrue(PresenceHistory.objects.filter(id=h_new.id).exists())
+        self.assertFalse(AuditLog.objects.filter(id=audit_old.id).exists())
+        self.assertTrue(AuditLog.objects.filter(id=audit_new.id).exists())
+
+    def test_ai_token_operation_audit_log(self):
+        """Token認証を使用したリクエスト時に監査ログにAIエージェント情報が記録されることを確認"""
+        from rest_framework.authtoken.models import Token
+        token, _ = Token.objects.get_or_create(user=self.user)
+        
+        # ユーザーと社員のメールアドレスを一致させる
+        self.employee.email = self.user.email
+        self.employee.save()
+        
+        # クライアントでToken認証を使用
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {token.key}')
+        
+        # 在席情報を更新
+        url = reverse('presence:presence-me')
+        data = {
+            'status': 'OUT',
+            'destination': '客先B',
+            'return_time': '2026-07-12T23:59:59+09:00'
+        }
+        response = self.client.patch(url, data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # 生成された監査ログを確認
+        log = AuditLog.objects.filter(action='PRESENCE_UPDATE').first()
+        self.assertIsNotNone(log)
+        self.assertIn("AIエージェント操作", log.description)
+        self.assertIn(f"Token: {token.key[:8]}", log.description)
+
+    def test_mcp_tools(self):
+        """MCP用Python関数ツール群が正しく動作することを確認"""
+        from apps.presence.services import mcp_tools
+        
+        # 1. presence_update
+        res_update = mcp_tools.presence_update(
+            employee_no=self.employee.employee_no,
+            status_name='OUT',
+            destination='客先C',
+            end_datetime_str='2026-07-12T23:59:59+09:00',
+            performer_username=self.user.username
+        )
+        self.assertEqual(res_update['status'], 'OUT')
+        self.assertEqual(res_update['destination'], '客先C')
+        
+        # 2. employee_find
+        res_find = mcp_tools.employee_find(employee_no=self.employee.employee_no)
+        self.assertEqual(res_find['name'], self.employee.name)
+        self.assertEqual(res_find['status'], 'OUT')
+        self.assertEqual(res_find['destination'], '客先C')
+        
+        # 3. presence_search
+        res_search = mcp_tools.presence_search(query=self.employee.name)
+        self.assertEqual(len(res_search), 1)
+        self.assertEqual(res_search[0]['employee_no'], self.employee.employee_no)
+        
+        # 4. presence_list
+        res_list = mcp_tools.presence_list(department_name=self.department.name)
+        self.assertEqual(len(res_list), 1)
+        self.assertEqual(res_list[0]['employee_no'], self.employee.employee_no)

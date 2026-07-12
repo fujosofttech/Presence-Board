@@ -544,5 +544,14 @@ class PresenceHistorySearchView(APIView):
         # 最新順に並べる
         queryset = queryset.order_by('-created_at')
 
+        from rest_framework.pagination import LimitOffsetPagination
+        paginator = LimitOffsetPagination()
+        paginator.default_limit = 100
+        paginator.max_limit = 1000
+        page = paginator.paginate_queryset(queryset, request, view=self)
+        if page is not None:
+            serializer = PresenceHistorySerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+
         serializer = PresenceHistorySerializer(queryset, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)

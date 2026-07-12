@@ -105,6 +105,8 @@ class PresenceHistory(models.Model):
         indexes = [
             models.Index(fields=["employee", "created_at"], name="idx_p_hist_emp_created"),
             models.Index(fields=["employee", "status"], name="idx_p_hist_emp_status"),
+            models.Index(fields=["created_at"], name="idx_p_hist_created_at"),
+            models.Index(fields=["status"], name="idx_p_hist_status_id"),
         ]
 
     def __str__(self) -> str:
