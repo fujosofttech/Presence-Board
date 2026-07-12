@@ -3,8 +3,10 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 from django.contrib.auth.models import User
 from apps.employees.models import Department, Group, StatusMaster, Employee
-from apps.presence.models import Presence, PresenceHistory
+from apps.presence.models import Presence, PresenceHistory, FavoriteDestination
 from apps.presence.events import event_publisher, MemoryEventPublisher
+from django.utils import timezone
+from datetime import timedelta
 
 
 class SSEStreamViewTestCase(APITestCase):
@@ -258,4 +260,78 @@ class PresenceSearchAPITestCase(APITestCase):
         response = self.client.get(self.search_url, {'group': self.group_sales1.id})
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]['name'], '佐藤花子')
+
+class FavoriteDestinationAPITestCase(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', email='test@example.com', password='password123')
+        self.client.force_login(self.user)
+        self.department = Department.objects.create(name='開発部', display_order=1)
+        self.group = Group.objects.create(department=self.department, name='開発1G', display_order=1)
+        self.employee = Employee.objects.create(
+            employee_no='E0001', name='山田太郎', email='test@example.com',
+            department=self.department, group=self.group, display_order=1
+        )
+        self.list_url = reverse('presence:favorite-list')
+        
+    def test_get_favorite_list_empty(self):
+        response = self.client.get(self.list_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 0)
+
+    def test_post_and_get_favorite(self):
+        data = {"destination": "〇〇株式会社", "display_order": 1}
+        response = self.client.post(self.list_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(FavoriteDestination.objects.count(), 1)
+
+        response = self.client.get(self.list_url)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['destination'], "〇〇株式会社")
+
+    def test_post_duplicate_favorite(self):
+        FavoriteDestination.objects.create(employee=self.employee, destination="〇〇株式会社", display_order=1)
+        data = {"destination": "〇〇株式会社", "display_order": 2}
+        response = self.client.post(self.list_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_delete_favorite(self):
+        favorite = FavoriteDestination.objects.create(employee=self.employee, destination="〇〇株式会社", display_order=1)
+        delete_url = reverse('presence:favorite-detail', kwargs={'pk': favorite.id})
+        response = self.client.delete(delete_url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(FavoriteDestination.objects.count(), 0)
+
+class RecentDestinationAPITestCase(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', email='test@example.com', password='password123')
+        self.client.force_login(self.user)
+        self.department = Department.objects.create(name='開発部', display_order=1)
+        self.group = Group.objects.create(department=self.department, name='開発1G', display_order=1)
+        self.employee = Employee.objects.create(
+            employee_no='E0001', name='山田太郎', email='test@example.com',
+            department=self.department, group=self.group, display_order=1
+        )
+        self.status_out = StatusMaster.objects.create(name='OUT', display_order=2)
+        self.recent_url = reverse('presence:recent-list')
+
+    def test_get_recent_destinations(self):
+        # 古い履歴
+        old_hist = PresenceHistory.objects.create(employee=self.employee, status=self.status_out, destination="古い会社")
+        old_time = timezone.now() - timedelta(days=35)
+        PresenceHistory.objects.filter(id=old_hist.id).update(created_at=old_time)
+        
+        # 新しい履歴（重複含む）
+        PresenceHistory.objects.create(employee=self.employee, status=self.status_out, destination="B社")
+        PresenceHistory.objects.create(employee=self.employee, status=self.status_out, destination="A社")
+        PresenceHistory.objects.create(employee=self.employee, status=self.status_out, destination="B社")
+        
+        # 空の履歴
+        PresenceHistory.objects.create(employee=self.employee, status=self.status_out, destination="")
+        
+        response = self.client.get(self.recent_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # B社とA社が返るはず（最後にB社が使われているのでB社が先）
+        self.assertEqual(len(response.data), 2)
+        self.assertEqual(response.data[0]['destination'], "B社")
+        self.assertEqual(response.data[1]['destination'], "A社")
 

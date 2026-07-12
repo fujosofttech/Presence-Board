@@ -217,7 +217,55 @@
                 variant="outlined"
                 color="teal"
                 clearable
-              ></v-text-field>
+              >
+                <!-- お気に入り追加/削除ボタン -->
+                <template v-slot:append-inner>
+                  <v-btn
+                    v-if="form.destination"
+                    icon
+                    variant="text"
+                    size="small"
+                    :color="isFavorite(form.destination) ? 'amber-darken-2' : 'grey'"
+                    @click="toggleFavorite(form.destination)"
+                  >
+                    <v-icon>{{ isFavorite(form.destination) ? 'mdi-star' : 'mdi-star-outline' }}</v-icon>
+                  </v-btn>
+                </template>
+              </v-text-field>
+
+              <!-- 行先候補表示 -->
+              <div class="mt-2" v-if="favorites.length > 0 || recents.length > 0">
+                <div v-if="favorites.length > 0" class="mb-1">
+                  <span class="text-caption text-grey mr-2">お気に入り:</span>
+                  <v-chip
+                    v-for="fav in favorites"
+                    :key="fav.id"
+                    size="small"
+                    class="mr-2 mb-1"
+                    color="amber-darken-4"
+                    variant="outlined"
+                    @click="form.destination = fav.destination"
+                  >
+                    <v-icon icon="mdi-star" size="x-small" class="mr-1" color="amber-darken-2" />
+                    {{ fav.destination }}
+                  </v-chip>
+                </div>
+                <div v-if="recents.length > 0">
+                  <span class="text-caption text-grey mr-2">最近の履歴:</span>
+                  <v-chip
+                    v-for="(rec, idx) in recents"
+                    :key="'rec'+idx"
+                    size="small"
+                    class="mr-2 mb-1"
+                    color="grey-darken-1"
+                    variant="outlined"
+                    @click="form.destination = rec.destination"
+                  >
+                    <v-icon icon="mdi-history" size="x-small" class="mr-1" />
+                    {{ rec.destination }}
+                  </v-chip>
+                </div>
+              </div>
             </v-col>
           </v-row>
 
@@ -323,6 +371,16 @@ interface GroupWithEmployees {
   employees: Employee[]
 }
 
+interface FavoriteDestination {
+  id: number
+  destination: string
+  display_order: number
+}
+
+interface RecentDestination {
+  destination: string
+}
+
 // ストア
 const authStore = useAuthStore()
 
@@ -342,6 +400,9 @@ const form = ref({
   destination: '',
   returnTimeRaw: ''
 })
+
+const favorites = ref<FavoriteDestination[]>([])
+const recents = ref<RecentDestination[]>([])
 
 // 選択中のステータスの定義ルール
 const statusRule = computed<StatusInfo>(() => {
@@ -422,15 +483,40 @@ const filteredGroups = computed<GroupWithEmployees[]>(() => {
 // 初期データ（一覧）の読み込み
 const loadInitialData = async () => {
   try {
-    // 1. 課一覧の取得
-    const deptRes = await api.get('/departments/')
+    const [deptRes, presRes, favRes, recRes] = await Promise.all([
+      api.get('/departments/'),
+      api.get('/presence/'),
+      api.get('/destinations/favorites/'),
+      api.get('/destinations/recent/')
+    ])
+    
     departments.value = [{ id: null, name: '全課' }, ...deptRes.data]
-
-    // 2. 社員・在籍一覧の取得
-    const presRes = await api.get('/presence/')
     employees.value = presRes.data
+    favorites.value = favRes.data
+    recents.value = recRes.data
   } catch (error) {
     console.error('Failed to load initial data:', error)
+  }
+}
+
+// お気に入り関連の処理
+const isFavorite = (dest: string) => {
+  return favorites.value.some(f => f.destination === dest)
+}
+
+const toggleFavorite = async (dest: string) => {
+  if (!dest) return
+  const existing = favorites.value.find(f => f.destination === dest)
+  try {
+    if (existing) {
+      await api.delete(`/destinations/favorites/${existing.id}/`)
+      favorites.value = favorites.value.filter(f => f.id !== existing.id)
+    } else {
+      const res = await api.post('/destinations/favorites/', { destination: dest, display_order: 0 })
+      favorites.value.push(res.data)
+    }
+  } catch (e) {
+    console.error('Failed to toggle favorite', e)
   }
 }
 

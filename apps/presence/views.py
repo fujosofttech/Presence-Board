@@ -10,10 +10,18 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from datetime import timedelta
+from django.db.models import Max
 from apps.employees.models import Employee, StatusMaster
-from apps.presence.models import Presence, PresenceHistory
+from apps.presence.models import Presence, PresenceHistory, FavoriteDestination
 from .events import event_publisher, MemoryEventPublisher
-from .serializers import PresenceListSerializer, PresenceSerializer, PresenceUpdateSerializer
+from .serializers import (
+    PresenceListSerializer, 
+    PresenceSerializer, 
+    PresenceUpdateSerializer,
+    FavoriteDestinationSerializer,
+    FavoriteDestinationCreateSerializer
+)
 
 
 class SSEEventStreamView(APIView):
@@ -206,3 +214,80 @@ class SearchAPIView(ListAPIView):
             queryset = queryset.filter(group_id=group_id)
 
         return queryset
+
+class FavoriteDestinationListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        try:
+            employee = Employee.objects.get(email=request.user.email, deleted_at__isnull=True)
+        except Employee.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+            
+        favorites = FavoriteDestination.objects.filter(employee=employee).order_by('display_order', '-created_at')
+        serializer = FavoriteDestinationSerializer(favorites, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request, *args, **kwargs):
+        try:
+            employee = Employee.objects.get(email=request.user.email, deleted_at__isnull=True)
+        except Employee.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+            
+        serializer = FavoriteDestinationCreateSerializer(data=request.data)
+        if serializer.is_valid():
+            try:
+                favorite = FavoriteDestination.objects.create(
+                    employee=employee,
+                    destination=serializer.validated_data['destination'],
+                    display_order=serializer.validated_data.get('display_order', 0)
+                )
+                return Response(FavoriteDestinationSerializer(favorite).data, status=status.HTTP_201_CREATED)
+            except Exception:
+                return Response(
+                    {"error_code": "E0004", "message": "この行先は既にお気に入りに登録されています。"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        return Response(
+            {"error_code": "E0001", "message": "バリデーションエラーが発生しました。", "details": serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+class FavoriteDestinationDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, pk, *args, **kwargs):
+        try:
+            employee = Employee.objects.get(email=request.user.email, deleted_at__isnull=True)
+            favorite = FavoriteDestination.objects.get(id=pk, employee=employee)
+            favorite.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except (Employee.DoesNotExist, FavoriteDestination.DoesNotExist):
+            return Response(
+                {"error_code": "E0005", "message": "指定されたお気に入り行先が見つかりません。"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+class RecentDestinationListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        try:
+            employee = Employee.objects.get(email=request.user.email, deleted_at__isnull=True)
+        except Employee.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+            
+        thirty_days_ago = timezone.now() - timedelta(days=30)
+        
+        recent_histories = (
+            PresenceHistory.objects
+            .filter(employee=employee, created_at__gte=thirty_days_ago)
+            .exclude(destination__exact='')
+            .exclude(destination__isnull=True)
+            .values('destination')
+            .annotate(last_used=Max('created_at'))
+            .order_by('-last_used')[:20]
+        )
+        
+        destinations = [{"destination": item["destination"]} for item in recent_histories]
+        return Response(destinations, status=status.HTTP_200_OK)
