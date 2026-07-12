@@ -1,4 +1,5 @@
 import logging
+from django.db import DatabaseError
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.contrib.auth.signals import user_logged_in, user_logged_out, user_login_failed
@@ -27,7 +28,7 @@ def log_login_success(sender, request, user, **kwargs):
             ip_address=ip_address
         )
         logger.info(f"AuditLog: LOGIN_SUCCESS - user={user.username}")
-    except Exception as e:
+    except DatabaseError as e:
         logger.error(f"Failed to create AuditLog for LOGIN_SUCCESS: {e}")
 
 
@@ -48,7 +49,7 @@ def log_logout(sender, request, user, **kwargs):
                 ip_address=ip_address
             )
             logger.info(f"AuditLog: LOGOUT - user={user.username if user else 'Unknown'}")
-        except Exception as e:
+        except DatabaseError as e:
             logger.error(f"Failed to create AuditLog for LOGOUT: {e}")
 
 
@@ -69,7 +70,7 @@ def log_login_failed(sender, credentials, request, **kwargs):
             ip_address=ip_address
         )
         logger.info(f"AuditLog: LOGIN_FAILED - username={username}")
-    except Exception as e:
+    except DatabaseError as e:
         logger.error(f"Failed to create AuditLog for LOGIN_FAILED: {e}")
 
 
@@ -102,7 +103,7 @@ def log_presence_save(sender, instance, created, **kwargs):
             ip_address=ip_address
         )
         logger.info(f"AuditLog: PRESENCE_UPDATE - employee={instance.employee.name} status={status_name}")
-    except Exception as e:
+    except DatabaseError as e:
         logger.error(f"Failed to create AuditLog for PRESENCE_UPDATE: {e}")
 
 
@@ -134,7 +135,7 @@ def handle_admin_op(sender, instance, action_verb):
             ip_address=ip_address
         )
         logger.info(f"AuditLog: ADMIN_OP - model={sender.__name__} action={action_verb}")
-    except Exception as e:
+    except DatabaseError as e:
         logger.error(f"Failed to create AuditLog for ADMIN_OP: {e}")
 
 
