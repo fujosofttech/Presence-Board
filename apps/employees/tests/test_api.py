@@ -132,3 +132,32 @@ class EmployeeAPITestCase(APITestCase):
         response = self.client.get(self.employee_list_url, {'department': other_dept.id})
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]['name'], '営業社員')
+
+    def test_non_staff_cannot_access_employee_master(self):
+        """一般ユーザーが社員マスタAPIにアクセスした場合に403 Forbiddenになることを確認"""
+        non_staff_user = User.objects.create_user(username='normaluser', password='password123')
+        non_staff_token = Token.objects.create(user=non_staff_user)
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + non_staff_token.key)
+
+        # 一覧取得
+        response = self.client.get(self.employee_list_url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 登録
+        response = self.client.post(self.employee_list_url, {}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 削除
+        response = self.client.delete(self.employee_detail_url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 部署マスタの取得（list）は一般ユーザーでも可能
+        dept_list_url = reverse('department-list')
+        response = self.client.get(dept_list_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # 部署マスタの登録（create）は一般ユーザーでは403になること
+        response = self.client.post(dept_list_url, {"name": "新規部署"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+

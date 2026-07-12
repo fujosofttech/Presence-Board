@@ -303,6 +303,22 @@ class FavoriteDestinationAPITestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(FavoriteDestination.objects.count(), 0)
 
+    def test_cannot_delete_other_employee_favorite(self):
+        """他人のお気に入り行先を削除しようとした場合に404エラーになること"""
+        other_employee = Employee.objects.create(
+            employee_no='E0002', name='テスト次郎', email='jiro@example.com',
+            department=self.department, group=self.group, display_order=2
+        )
+        other_favorite = FavoriteDestination.objects.create(
+            employee=other_employee, destination="〇〇株式会社", display_order=1
+        )
+        delete_url = reverse('presence:favorite-detail', kwargs={'pk': other_favorite.id})
+        response = self.client.delete(delete_url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        # 他人のお気に入りが削除されていないこと
+        self.assertEqual(FavoriteDestination.objects.count(), 1)
+
+
 class RecentDestinationAPITestCase(APITestCase):
     def setUp(self):
         self.user = User.objects.create_user(username='testuser', email='test@example.com', password='password123')
@@ -479,6 +495,35 @@ class ScheduledStatusAPITestCase(APITestCase):
         self.client.logout()
         response = self.client.get(self.list_url)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_cannot_modify_other_employee_scheduled_status(self):
+        """他人の ScheduledStatus に対する変更・削除ができない（404 になる）ことを確認"""
+        other_employee = Employee.objects.create(
+            employee_no='E0002',
+            name='テスト次郎',
+            email='jiro@example.com',
+            department=self.department,
+            group=self.group,
+            display_order=2
+        )
+        target_date = timezone.localdate() + timedelta(days=2)
+        other_scheduled = ScheduledStatus.objects.create(
+            employee=other_employee,
+            target_date=target_date,
+            status=self.status_present
+        )
+
+        detail_url = reverse('presence:scheduled-status-detail', kwargs={'pk': other_scheduled.id})
+
+        # 他人の予定を変更しようとする
+        data = {"destination": "侵入テスト"}
+        response = self.client.patch(detail_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        # 他人の予定を削除しようとする
+        response = self.client.delete(detail_url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
 
     def test_patch_duplicate_error(self):
         """PATCHで既存の日付に変更しようとした場合に重複エラーになること"""
