@@ -1,12 +1,25 @@
 <template>
-  <v-container class="fill-height bg-grey-lighten-4 py-6" fluid>
+  <v-container class="fill-height bg-slate-50 py-6" fluid>
     <!-- ナビゲーションバー -->
-    <v-app-bar color="teal-darken-3" elevation="2">
-      <v-app-bar-title class="font-weight-bold text-h6">
+    <v-app-bar class="app-bar-gradient" elevation="3">
+      <v-app-bar-title class="font-weight-bold text-h6 d-flex align-center">
         <v-icon icon="mdi-view-dashboard-outline" class="mr-2" />
         社内行先・在席管理システム
       </v-app-bar-title>
+      
       <v-spacer></v-spacer>
+      
+      <!-- リアルタイム接続状態インジケータ (操作性/切断検知改善) -->
+      <v-chip
+        :color="isConnected ? 'success' : 'error'"
+        variant="flat"
+        class="mr-4 font-weight-bold text-white shadow-sm"
+        size="small"
+      >
+        <v-icon :icon="isConnected ? 'mdi-wifi' : 'mdi-wifi-off'" class="mr-1" />
+        {{ isConnected ? 'リアルタイム接続中' : '再接続中...' }}
+      </v-chip>
+
       <v-btn
         v-if="myProfile?.is_staff"
         color="teal-lighten-5"
@@ -17,8 +30,8 @@
       >
         管理画面
       </v-btn>
-      <v-chip class="mr-4 text-subtitle-1" color="teal-lighten-4" variant="flat">
-        <v-icon icon="mdi-account" class="mr-1" />
+      <v-chip class="mr-4 text-subtitle-2" color="teal-lighten-4" variant="flat">
+        <v-icon icon="mdi-account-circle" class="mr-1" />
         {{ myInfo?.name || 'ゲスト' }} (自分)
       </v-chip>
     </v-app-bar>
@@ -26,51 +39,66 @@
     <v-row class="justify-center mt-12 w-100">
       <v-col cols="12" md="10" lg="9">
         
-        <!-- 自分（ログイン中の利用者）のステータス表示カード (最上部固定) -->
-        <v-card v-if="myInfo" class="mb-6 border-s-lg border-teal shadow-lg" elevation="2">
+        <!-- 自分（ログイン中の利用者）のステータス表示カード (最上部固定 & カード改善) -->
+        <v-card v-if="myInfo" class="mb-6 glass-card border-s-lg" :style="{ borderLeftColor: getStatusColor(myPresence.status) + ' !important', borderLeftWidth: '6px !important' }" elevation="2">
           <v-card-text class="d-flex flex-wrap align-center justify-space-between py-4">
             <div class="d-flex align-center">
-              <v-avatar color="teal-lighten-4" size="50" class="mr-4">
-                <span class="text-teal-darken-3 font-weight-bold text-h6">{{ myInfo.name[0] }}</span>
+              <v-avatar :color="getAvatarColor(myInfo.name)" size="56" class="mr-4 text-white font-weight-bold text-h5 elevation-2">
+                {{ myInfo.name[0] }}
               </v-avatar>
               <div>
-                <div class="text-subtitle-2 text-grey">現在の自分の状況</div>
-                <div class="text-h6 font-weight-bold">{{ myInfo.name }}</div>
+                <div class="text-subtitle-2 text-grey-darken-1 font-weight-medium">現在の自分の状況</div>
+                <div class="text-h5 font-weight-bold text-slate-800">{{ myInfo.name }}</div>
               </div>
             </div>
             
-            <div class="d-flex align-center flex-wrap gap-4 mt-2 mt-sm-0">
+            <div class="d-flex align-center flex-wrap gap-4 mt-4 mt-md-0">
               <!-- 状態表示チップ -->
-              <v-chip :color="getStatusColor(myPresence.status)" variant="flat" size="large" class="font-weight-bold text-white">
-                <v-icon :icon="getStatusIcon(myPresence.status)" class="mr-1" />
+              <v-chip :color="getStatusColor(myPresence.status)" variant="flat" size="large" class="font-weight-bold text-white shadow-sm py-5 px-4">
+                <v-icon :icon="getStatusIcon(myPresence.status)" class="mr-2" size="large" />
                 {{ getStatusLabel(myPresence.status) }}
               </v-chip>
               
               <!-- 行先・戻り予定 -->
-              <div class="text-body-1 ml-4" v-if="myPresence.destination">
-                <span class="text-grey-darken-1">行先:</span> <strong>{{ myPresence.destination }}</strong>
+              <div class="text-body-1 ml-2 d-flex flex-column" v-if="myPresence.destination || myPresence.end_datetime">
+                <span class="text-grey-darken-1 text-caption font-weight-bold">詳細情報</span>
+                <span class="text-slate-700">
+                  <span v-if="myPresence.destination" class="mr-3">
+                    <v-icon icon="mdi-map-marker" size="small" class="mr-1 text-grey" />
+                    <strong>{{ myPresence.destination }}</strong>
+                  </span>
+                  <span v-if="myPresence.end_datetime">
+                    <v-icon icon="mdi-clock" size="small" class="mr-1 text-grey" />
+                    戻り: <strong>{{ formatTimeOnly(myPresence.end_datetime) }}</strong>
+                  </span>
+                </span>
               </div>
-              <div class="text-body-1 ml-4" v-if="myPresence.end_datetime">
-                <span class="text-grey-darken-1">戻り予定:</span> <strong>{{ formatTimeOnly(myPresence.end_datetime) }}</strong>
+
+              <!-- クイック更新エリア (操作性改善) -->
+              <div class="d-flex align-center bg-teal-lighten-5 px-3 py-2 rounded-lg border border-teal-lighten-4">
+                <span class="text-caption text-teal-darken-4 font-weight-bold mr-2">ワンクリック更新:</span>
+                <v-btn size="small" variant="flat" color="green" class="mr-1 text-white font-weight-bold" @click="quickUpdateStatus('PRESENT')">在席</v-btn>
+                <v-btn size="small" variant="flat" color="light-green" class="mr-1 text-white font-weight-bold" @click="quickUpdateStatus('REMOTE')">在宅</v-btn>
+                <v-btn size="small" variant="flat" color="red" class="text-white font-weight-bold" @click="quickUpdateStatus('LEAVE')">退社</v-btn>
               </div>
 
               <!-- 状況更新ボタン -->
               <v-btn
                 color="teal-darken-2"
                 prepend-icon="mdi-pencil"
-                class="ml-6 font-weight-bold text-white"
-                elevation="1"
+                class="font-weight-bold text-white px-5 shadow-sm"
+                elevation="2"
                 @click="openUpdateDialog"
               >
-                状況を更新
+                状況を変更
               </v-btn>
               
               <!-- 予定管理ボタン -->
               <v-btn
                 color="blue-darken-2"
                 prepend-icon="mdi-calendar-clock"
-                class="ml-2 font-weight-bold text-white"
-                elevation="1"
+                class="font-weight-bold text-white px-5 shadow-sm"
+                elevation="2"
                 @click="openScheduleManager"
               >
                 予定管理
@@ -79,11 +107,11 @@
           </v-card-text>
         </v-card>
 
-        <!-- 検索・絞り込みフィルターエリア -->
-        <v-card class="mb-6 py-3 px-4" elevation="1">
+        <!-- 検索・絞り込みフィルターエリア (検索UI改善) -->
+        <v-card class="mb-6 py-4 px-5 glass-card" elevation="2">
           <v-row dense align="center">
             <!-- 課での絞り込み -->
-            <v-col cols="12" sm="5">
+            <v-col cols="12" sm="4">
               <v-select
                 v-model="selectedDepartment"
                 :items="departments"
@@ -94,39 +122,163 @@
                 variant="outlined"
                 density="comfortable"
                 hide-details
+                color="teal"
               ></v-select>
             </v-col>
             
-            <!-- 氏名検索 -->
-            <v-col cols="12" sm="7">
+            <!-- 氏名検索 (自然言語 & Debounce 検索対応) -->
+            <v-col cols="12" sm="8">
               <v-text-field
                 v-model="searchQuery"
-                label="氏名または社員番号で検索"
+                label="氏名、状態、行先などを自然言語で検索 (例: 営業部 在宅 / 山田 本日外出)"
                 prepend-inner-icon="mdi-magnify"
                 variant="outlined"
                 density="comfortable"
                 clearable
                 hide-details
+                color="teal"
+                :loading="searchLoading"
               ></v-text-field>
             </v-col>
           </v-row>
+
+          <!-- クイック検索チップス (操作性・検索UI改善) -->
+          <div class="mt-3 d-flex flex-wrap align-center gap-2">
+            <span class="text-caption text-grey-darken-1 mr-2 font-weight-medium">クイック検索:</span>
+            <v-chip
+              size="small"
+              color="green-darken-1"
+              class="mr-2"
+              @click="searchQuery = searchQuery === '在席' ? '' : '在席'"
+              :variant="searchQuery === '在席' ? 'flat' : 'outlined'"
+            >
+              在席
+            </v-chip>
+            <v-chip
+              size="small"
+              color="orange-darken-2"
+              class="mr-2"
+              @click="searchQuery = searchQuery === '外出' ? '' : '外出'"
+              :variant="searchQuery === '外出' ? 'flat' : 'outlined'"
+            >
+              外出
+            </v-chip>
+            <v-chip
+              size="small"
+              color="light-green-darken-2"
+              class="mr-2"
+              @click="searchQuery = searchQuery === '在宅' ? '' : '在宅'"
+              :variant="searchQuery === '在宅' ? 'flat' : 'outlined'"
+            >
+              在宅
+            </v-chip>
+            <v-chip
+              size="small"
+              color="blue-darken-2"
+              class="mr-2"
+              @click="searchQuery = searchQuery === '会議' ? '' : '会議'"
+              :variant="searchQuery === '会議' ? 'flat' : 'outlined'"
+            >
+              会議
+            </v-chip>
+            <v-chip
+              size="small"
+              color="cyan-darken-3"
+              class="mr-2"
+              @click="searchQuery = searchQuery === '営業部' ? '' : '営業部'"
+              :variant="searchQuery === '営業部' ? 'flat' : 'outlined'"
+            >
+              営業部
+            </v-chip>
+          </div>
         </v-card>
 
         <!-- 社員一覧エリア (グループごとにセクション分け) -->
-        <div v-for="group in filteredGroups" :key="group.id" class="mb-6">
-          <div class="text-h6 font-weight-bold text-grey-darken-3 mb-3 d-flex align-center">
+        <div v-for="group in filteredGroups" :key="group.id" class="mb-8">
+          <div class="text-h6 font-weight-bold text-slate-800 mb-3 d-flex align-center">
             <v-icon icon="mdi-account-group-outline" class="mr-2" color="teal-darken-1" />
             {{ group.departmentName }} - {{ group.name }}
+            <v-badge
+              :content="group.employees.length.toString()"
+              color="teal-darken-1"
+              inline
+              class="ml-2 font-weight-bold"
+            ></v-badge>
           </div>
 
-          <v-card elevation="1">
-            <v-table>
+          <!-- モバイル表示 (レスポンシブ対応 & カードデザイン改善) -->
+          <v-row v-if="smAndDown">
+            <v-col
+              v-for="emp in group.employees"
+              :key="emp.id"
+              cols="12"
+              sm="6"
+            >
+              <v-card
+                :class="{ 'highlight-row': activeHighlights[emp.employee_no] }"
+                class="glass-card mb-3 py-4 px-5 border-start-solid elevation-1 transition-all"
+                :style="{ borderLeftColor: getStatusColor(emp.presence.status) + ' !important', borderLeftWidth: '6px !important' }"
+              >
+                <div class="d-flex justify-space-between align-start">
+                  <div>
+                    <div class="d-flex align-center mb-2">
+                      <v-avatar :color="getAvatarColor(emp.name)" size="36" class="mr-2 text-white font-weight-bold text-subtitle-2 shadow-sm">
+                        {{ emp.name[0] }}
+                      </v-avatar>
+                      <div>
+                        <span class="font-weight-bold text-subtitle-1 text-slate-800">{{ emp.name }}</span>
+                        <v-chip
+                          v-if="emp.employee_no === myInfo?.employee_no"
+                          size="x-small"
+                          color="teal"
+                          class="ml-2 text-white font-weight-bold"
+                          variant="flat"
+                        >
+                          自分
+                        </v-chip>
+                      </div>
+                    </div>
+                    
+                    <div class="text-body-2 text-slate-600 mt-3 pl-1">
+                      <div v-if="emp.presence.destination" class="d-flex align-center mb-1">
+                        <v-icon icon="mdi-map-marker-outline" size="small" class="mr-1 text-grey-darken-1" />
+                        <span>行先: <strong>{{ emp.presence.destination }}</strong></span>
+                      </div>
+                      <div v-if="emp.presence.end_datetime" class="d-flex align-center mb-1">
+                        <v-icon icon="mdi-clock-outline" size="small" class="mr-1 text-grey-darken-1" />
+                        <span>戻り予定: <strong>{{ formatTimeOnly(emp.presence.end_datetime) }}</strong></span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div class="text-right d-flex flex-column align-end">
+                    <v-chip
+                      :color="getStatusColor(emp.presence.status)"
+                      size="small"
+                      class="font-weight-bold text-white shadow-sm mb-2"
+                      variant="flat"
+                    >
+                      <v-icon :icon="getStatusIcon(emp.presence.status)" class="mr-1" size="x-small" />
+                      {{ getStatusLabel(emp.presence.status) }}
+                    </v-chip>
+                    <div class="text-caption text-grey-darken-1 mt-4">
+                      {{ formatTimeOnly(emp.presence.updated_at) }} 更新
+                    </div>
+                  </div>
+                </div>
+              </v-card>
+            </v-col>
+          </v-row>
+
+          <!-- デスクトップ表示 (PCテーブルデザイン改善) -->
+          <v-card v-else class="glass-card overflow-hidden" elevation="2">
+            <v-table class="bg-transparent">
               <thead>
                 <tr class="bg-teal-lighten-5">
                   <th class="text-subtitle-2 font-weight-bold text-teal-darken-4" style="width: 15%">状態</th>
-                  <th class="text-subtitle-2 font-weight-bold text-teal-darken-4" style="width: 20%">氏名</th>
+                  <th class="text-subtitle-2 font-weight-bold text-teal-darken-4" style="width: 25%">氏名</th>
                   <th class="text-subtitle-2 font-weight-bold text-teal-darken-4" style="width: 30%">行先</th>
-                  <th class="text-subtitle-2 font-weight-bold text-teal-darken-4" style="width: 20%">予定</th>
+                  <th class="text-subtitle-2 font-weight-bold text-teal-darken-4" style="width: 15%">戻り予定</th>
                   <th class="text-subtitle-2 font-weight-bold text-teal-darken-4 text-right" style="width: 15%">更新時刻</th>
                 </tr>
               </thead>
@@ -135,14 +287,14 @@
                   v-for="emp in group.employees"
                   :key="emp.id"
                   :class="{ 'highlight-row': activeHighlights[emp.employee_no] }"
-                  class="transition-all"
+                  class="transition-all hover-row"
                 >
                   <!-- 状態 -->
                   <td>
                     <v-chip
                       :color="getStatusColor(emp.presence.status)"
                       size="small"
-                      class="font-weight-bold text-white"
+                      class="font-weight-bold text-white shadow-sm"
                       variant="flat"
                     >
                       <v-icon :icon="getStatusIcon(emp.presence.status)" class="mr-1" size="small" />
@@ -151,29 +303,49 @@
                   </td>
 
                   <!-- 氏名 -->
-                  <td class="font-weight-bold">
-                    {{ emp.name }}
-                    <span v-if="emp.employee_no === myInfo?.employee_no" class="text-caption text-teal ml-1">(自分)</span>
+                  <td class="font-weight-bold text-slate-800">
+                    <div class="d-flex align-center">
+                      <v-avatar :color="getAvatarColor(emp.name)" size="30" class="mr-2 text-white font-weight-bold text-caption shadow-sm">
+                        {{ emp.name[0] }}
+                      </v-avatar>
+                      <span>{{ emp.name }}</span>
+                      <v-chip
+                        v-if="emp.employee_no === myInfo?.employee_no"
+                        size="x-small"
+                        color="teal"
+                        class="ml-2 text-white font-weight-bold"
+                        variant="flat"
+                      >
+                        自分
+                      </v-chip>
+                    </div>
                   </td>
 
                   <!-- 行先 -->
-                  <td class="text-grey-darken-2">
-                    {{ emp.presence.destination || '－' }}
+                  <td class="text-slate-700">
+                    <span v-if="emp.presence.destination" class="d-flex align-center">
+                      <v-icon icon="mdi-map-marker-outline" size="small" class="mr-1 text-grey" />
+                      {{ emp.presence.destination }}
+                    </span>
+                    <span v-else class="text-grey-lighten-1">－</span>
                   </td>
 
                   <!-- 予定 -->
-                  <td class="text-grey-darken-2">
-                    <span v-if="emp.presence.end_datetime">{{ formatTimeOnly(emp.presence.end_datetime) }} まで</span>
-                    <span v-else>－</span>
+                  <td class="text-slate-700">
+                    <span v-if="emp.presence.end_datetime" class="d-flex align-center">
+                      <v-icon icon="mdi-clock-outline" size="small" class="mr-1 text-grey" />
+                      {{ formatTimeOnly(emp.presence.end_datetime) }} まで
+                    </span>
+                    <span v-else class="text-grey-lighten-1">－</span>
                   </td>
 
                   <!-- 更新時刻 -->
-                  <td class="text-right text-caption text-grey">
+                  <td class="text-right text-caption text-grey-darken-1">
                     {{ formatTimeOnly(emp.presence.updated_at) }}
                   </td>
                 </tr>
                 <tr v-if="group.employees.length === 0">
-                  <td colspan="5" class="text-center text-grey py-4">該当する社員がいません</td>
+                  <td colspan="5" class="text-center text-grey py-6">該当する社員がいません</td>
                 </tr>
               </tbody>
             </v-table>
@@ -184,9 +356,9 @@
           v-if="filteredGroups.length === 0"
           type="info"
           variant="tonal"
-          class="text-center"
+          class="text-center rounded-xl"
         >
-          表示する社員が見つかりません。
+          表示する社員が見つかりません。条件を変更して再検索してください。
         </v-alert>
 
       </v-col>
@@ -194,7 +366,7 @@
 
     <!-- 状況更新ダイアログ -->
     <v-dialog v-model="dialog" max-width="600px" persistent>
-      <v-card class="rounded-lg">
+      <v-card class="rounded-xl elevation-24">
         <v-card-title class="bg-teal-darken-3 text-white py-4 d-flex align-center">
           <v-icon icon="mdi-pencil-box-outline" class="mr-2" />
           <span class="font-weight-bold text-h6">自分の状況を更新</span>
@@ -202,9 +374,9 @@
           <v-btn icon="mdi-close" variant="text" color="white" @click="closeUpdateDialog"></v-btn>
         </v-card-title>
 
-        <v-card-text class="py-6 px-6">
-          <div class="mb-4">
-            <label class="text-subtitle-2 font-weight-bold text-grey-darken-3 d-block mb-2">ステータス</label>
+        <v-card-text class="py-6 px-6 bg-slate-50">
+          <div class="mb-5">
+            <label class="text-subtitle-2 font-weight-bold text-grey-darken-3 d-block mb-3">ステータスを選択</label>
             <v-row dense>
               <v-col
                 v-for="(def, key) in STATUS_DEFINITIONS"
@@ -214,10 +386,10 @@
               >
                 <v-btn
                   block
-                  :color="form.status === key ? def.color : 'grey-lighten-4'"
+                  :color="form.status === key ? def.color : 'white'"
                   :variant="form.status === key ? 'flat' : 'outlined'"
-                  :class="{'text-white': form.status === key, 'text-grey-darken-2': form.status !== key}"
-                  class="font-weight-bold py-2"
+                  :class="{'text-white': form.status === key, 'text-grey-darken-2 border-slate-200': form.status !== key}"
+                  class="font-weight-bold py-2 shadow-sm text-none transition-all"
                   @click="selectStatus(key)"
                 >
                   <v-icon :icon="def.icon" class="mr-1" size="small" />
@@ -227,19 +399,33 @@
             </v-row>
           </div>
 
-          <!-- 行先入力 (状態ルールに応じて表示) -->
+          <!-- 行先入力 (状態ルールに応じて表示 & お気に入り/履歴のインテグレーション) -->
           <v-row v-if="statusRule.requiresDestination !== 'disabled'">
             <v-col cols="12">
-              <v-text-field
+              <v-combobox
                 v-model="form.destination"
-                :label="'行先' + (statusRule.requiresDestination === 'required' ? ' (必須)' : ' (任意)')"
+                :items="destinationSuggestions"
+                :label="'行先を入力、またはお気に入り・履歴から選択' + (statusRule.requiresDestination === 'required' ? ' (必須)' : ' (任意)')"
                 :rules="[v => (statusRule.requiresDestination !== 'required' || !!v) || '行先を入力してください']"
                 prepend-inner-icon="mdi-map-marker-outline"
                 variant="outlined"
                 color="teal"
                 clearable
+                hide-no-data
+                class="bg-white rounded-lg shadow-sm"
               >
-                <!-- お気に入り追加/削除ボタン -->
+                <!-- 候補選択リスト内のアイコン表示 -->
+                <template v-slot:item="{ props, item }">
+                  <v-list-item v-bind="props">
+                    <template v-slot:prepend>
+                      <v-icon :color="isFavorite(item.title) ? 'amber-darken-2' : 'grey-darken-1'">
+                        {{ isFavorite(item.title) ? 'mdi-star' : 'mdi-history' }}
+                      </v-icon>
+                    </template>
+                  </v-list-item>
+                </template>
+
+                <!-- お気に入り追加/削除ボタン (入力欄の右側) -->
                 <template v-slot:append-inner>
                   <v-btn
                     v-if="form.destination"
@@ -247,22 +433,22 @@
                     variant="text"
                     size="small"
                     :color="isFavorite(form.destination) ? 'amber-darken-2' : 'grey'"
-                    @click="toggleFavorite(form.destination)"
+                    @click.stop="toggleFavorite(form.destination)"
                   >
                     <v-icon>{{ isFavorite(form.destination) ? 'mdi-star' : 'mdi-star-outline' }}</v-icon>
                   </v-btn>
                 </template>
-              </v-text-field>
+              </v-combobox>
 
-              <!-- 行先候補表示 -->
-              <div class="mt-2" v-if="favorites.length > 0 || recents.length > 0">
-                <div v-if="favorites.length > 0" class="mb-1">
-                  <span class="text-caption text-grey mr-2">お気に入り:</span>
+              <!-- 行先候補表示 (チップ形式 - 表示改善) -->
+              <div class="mt-3" v-if="favorites.length > 0 || recents.length > 0">
+                <div v-if="favorites.length > 0" class="mb-2 d-flex flex-wrap align-center">
+                  <span class="text-caption text-grey-darken-1 mr-2 font-weight-bold">★ お気に入り:</span>
                   <v-chip
                     v-for="fav in favorites"
                     :key="fav.id"
                     size="small"
-                    class="mr-2 mb-1"
+                    class="mr-2 mb-1 shadow-sm font-weight-bold"
                     color="amber-darken-4"
                     variant="outlined"
                     @click="form.destination = fav.destination"
@@ -271,14 +457,14 @@
                     {{ fav.destination }}
                   </v-chip>
                 </div>
-                <div v-if="recents.length > 0">
-                  <span class="text-caption text-grey mr-2">最近の履歴:</span>
+                <div v-if="recents.length > 0" class="d-flex flex-wrap align-center">
+                  <span class="text-caption text-grey-darken-1 mr-2 font-weight-bold">🕒 最近の履歴:</span>
                   <v-chip
                     v-for="(rec, idx) in recents"
                     :key="'rec'+idx"
                     size="small"
-                    class="mr-2 mb-1"
-                    color="grey-darken-1"
+                    class="mr-2 mb-1 shadow-sm"
+                    color="grey-darken-2"
                     variant="outlined"
                     @click="form.destination = rec.destination"
                   >
@@ -301,6 +487,7 @@
                 type="time"
                 variant="outlined"
                 color="teal"
+                class="bg-white rounded-lg shadow-sm"
               ></v-text-field>
             </v-col>
           </v-row>
@@ -309,19 +496,19 @@
             v-if="errorMessage"
             type="error"
             variant="tonal"
-            class="mt-4"
+            class="mt-4 rounded-xl"
             density="compact"
           >
             {{ errorMessage }}
           </v-alert>
         </v-card-text>
 
-        <v-card-actions class="px-6 pb-6 pt-0">
+        <v-card-actions class="px-6 pb-6 pt-3 bg-slate-50">
           <v-spacer></v-spacer>
           <v-btn
             color="grey-darken-1"
             variant="text"
-            class="font-weight-bold mr-2"
+            class="font-weight-bold mr-2 px-4"
             @click="closeUpdateDialog"
           >
             キャンセル
@@ -329,7 +516,7 @@
           <v-btn
             color="teal-darken-2"
             variant="flat"
-            class="font-weight-bold text-white px-6"
+            class="font-weight-bold text-white px-6 shadow-sm"
             :loading="submitting"
             @click="submitUpdate"
           >
@@ -341,55 +528,58 @@
 
     <!-- 予定管理ダイアログ -->
     <v-dialog v-model="scheduleManagerDialog" max-width="800px" scrollable>
-      <v-card class="rounded-lg">
+      <v-card class="rounded-xl elevation-24">
         <v-card-title class="bg-blue-darken-3 text-white py-4 d-flex align-center">
           <v-icon icon="mdi-calendar-clock" class="mr-2" />
           <span class="font-weight-bold text-h6">予定管理</span>
           <v-spacer></v-spacer>
           <v-btn icon="mdi-close" variant="text" color="white" @click="scheduleManagerDialog = false"></v-btn>
         </v-card-title>
-        <v-card-text class="py-4" style="height: 60vh;">
+        
+        <v-card-text class="py-4 bg-slate-50" style="height: 60vh;">
           <div v-if="!scheduleEditing">
             <div class="d-flex justify-space-between align-center mb-4">
               <span class="text-subtitle-1 font-weight-bold text-grey-darken-3">今後30日間の予定</span>
-              <v-btn color="blue-darken-2" prepend-icon="mdi-plus" @click="openScheduleForm()">新規登録</v-btn>
+              <v-btn color="blue-darken-2" prepend-icon="mdi-plus" class="font-weight-bold shadow-sm" @click="openScheduleForm()">新規登録</v-btn>
             </div>
             
-            <v-table>
-              <thead>
-                <tr>
-                  <th>対象日</th>
-                  <th>状態</th>
-                  <th>行先</th>
-                  <th>時間</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="item in scheduledStatuses" :key="item.id">
-                  <td>{{ item.target_date }}</td>
-                  <td>
-                    <v-chip :color="getStatusColor(item.status)" size="small" variant="flat" class="text-white">
-                      {{ getStatusLabel(item.status) }}
-                    </v-chip>
-                  </td>
-                  <td>{{ item.destination || '－' }}</td>
-                  <td>
-                    {{ formatTimeOnly(item.start_time) }} 〜 {{ formatTimeOnly(item.end_time) }}
-                  </td>
-                  <td>
-                    <v-btn icon="mdi-pencil" variant="text" size="small" color="blue" @click="openScheduleForm(item)"></v-btn>
-                    <v-btn icon="mdi-delete" variant="text" size="small" color="red" @click="deleteSchedule(item.id)"></v-btn>
-                  </td>
-                </tr>
-                <tr v-if="scheduledStatuses.length === 0">
-                  <td colspan="5" class="text-center text-grey">登録されている予定はありません</td>
-                </tr>
-              </tbody>
-            </v-table>
+            <v-card class="glass-card" elevation="2">
+              <v-table class="bg-transparent">
+                <thead>
+                  <tr class="bg-blue-lighten-5">
+                    <th class="text-subtitle-2 font-weight-bold text-blue-darken-4">対象日</th>
+                    <th class="text-subtitle-2 font-weight-bold text-blue-darken-4">状態</th>
+                    <th class="text-subtitle-2 font-weight-bold text-blue-darken-4">行先</th>
+                    <th class="text-subtitle-2 font-weight-bold text-blue-darken-4">時間</th>
+                    <th class="text-subtitle-2 font-weight-bold text-blue-darken-4">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in scheduledStatuses" :key="item.id" class="hover-row">
+                    <td class="font-weight-bold text-slate-700">{{ item.target_date }}</td>
+                    <td>
+                      <v-chip :color="getStatusColor(item.status)" size="small" variant="flat" class="text-white font-weight-bold shadow-sm">
+                        {{ getStatusLabel(item.status) }}
+                      </v-chip>
+                    </td>
+                    <td class="text-slate-600">{{ item.destination || '－' }}</td>
+                    <td class="text-slate-600">
+                      {{ formatTimeOnly(item.start_time) }} 〜 {{ formatTimeOnly(item.end_time) }}
+                    </td>
+                    <td>
+                      <v-btn icon="mdi-pencil" variant="text" size="small" color="blue" @click="openScheduleForm(item)"></v-btn>
+                      <v-btn icon="mdi-delete" variant="text" size="small" color="red" @click="deleteSchedule(item.id)"></v-btn>
+                    </td>
+                  </tr>
+                  <tr v-if="scheduledStatuses.length === 0">
+                    <td colspan="5" class="text-center text-grey py-6">登録されている予定はありません</td>
+                  </tr>
+                </tbody>
+              </v-table>
+            </v-card>
           </div>
 
-          <div v-else>
+          <div v-else class="px-2">
             <div class="d-flex align-center mb-4">
               <v-btn icon="mdi-arrow-left" variant="text" @click="scheduleEditing = false"></v-btn>
               <span class="text-subtitle-1 font-weight-bold ml-2">{{ scheduleForm.id ? '予定の編集' : '予定の新規登録' }}</span>
@@ -404,19 +594,20 @@
                   variant="outlined"
                   density="comfortable"
                   :rules="[v => !!v || '対象日を入力してください']"
+                  class="bg-white rounded-lg shadow-sm"
                 ></v-text-field>
               </v-col>
               <v-col cols="12">
-                <label class="text-subtitle-2 font-weight-bold text-grey-darken-3 d-block mb-2">ステータス</label>
+                <label class="text-subtitle-2 font-weight-bold text-grey-darken-3 d-block mb-2">ステータスを選択</label>
                 <v-row dense>
                   <v-col v-for="(def, key) in STATUS_DEFINITIONS" :key="key" cols="4" sm="3">
                     <v-btn
                       block
                       size="small"
-                      :color="scheduleForm.status === key ? def.color : 'grey-lighten-4'"
+                      :color="scheduleForm.status === key ? def.color : 'white'"
                       :variant="scheduleForm.status === key ? 'flat' : 'outlined'"
-                      :class="{'text-white': scheduleForm.status === key, 'text-grey-darken-2': scheduleForm.status !== key}"
-                      class="font-weight-bold py-1 mb-2"
+                      :class="{'text-white': scheduleForm.status === key, 'text-grey-darken-2 border-slate-200': scheduleForm.status !== key}"
+                      class="font-weight-bold py-1 mb-2 shadow-sm"
                       @click="scheduleForm.status = key"
                     >
                       {{ def.label }}
@@ -430,6 +621,7 @@
                   label="行先"
                   variant="outlined"
                   density="comfortable"
+                  class="bg-white rounded-lg shadow-sm"
                 ></v-text-field>
               </v-col>
               <v-col cols="6">
@@ -439,6 +631,7 @@
                   type="time"
                   variant="outlined"
                   density="comfortable"
+                  class="bg-white rounded-lg shadow-sm"
                 ></v-text-field>
               </v-col>
               <v-col cols="6">
@@ -448,6 +641,7 @@
                   type="time"
                   variant="outlined"
                   density="comfortable"
+                  class="bg-white rounded-lg shadow-sm"
                 ></v-text-field>
               </v-col>
               <v-col cols="12">
@@ -456,17 +650,18 @@
                   label="メモ"
                   variant="outlined"
                   density="comfortable"
+                  class="bg-white rounded-lg shadow-sm"
                 ></v-text-field>
               </v-col>
             </v-row>
 
-            <v-alert v-if="scheduleErrorMessage" type="error" variant="tonal" class="mt-2" density="compact">
+            <v-alert v-if="scheduleErrorMessage" type="error" variant="tonal" class="mt-2 rounded-xl" density="compact">
               {{ scheduleErrorMessage }}
             </v-alert>
 
-            <div class="d-flex justify-end mt-4">
-              <v-btn color="grey" variant="text" class="mr-2" @click="scheduleEditing = false">キャンセル</v-btn>
-              <v-btn color="blue-darken-2" :loading="scheduleSubmitting" @click="submitSchedule">保存する</v-btn>
+            <div class="d-flex justify-end mt-6">
+              <v-btn color="grey" variant="text" class="mr-2 px-4" @click="scheduleEditing = false">キャンセル</v-btn>
+              <v-btn color="blue-darken-2" class="font-weight-bold px-6 shadow-sm" :loading="scheduleSubmitting" @click="submitSchedule">保存する</v-btn>
             </div>
           </div>
         </v-card-text>
@@ -476,7 +671,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useDisplay } from 'vuetify'
 import { useAuthStore } from '../stores/auth'
 import { usePresenceSSE } from '../composables/usePresenceSSE'
 import {
@@ -555,8 +751,9 @@ interface MyProfile {
   presence: Presence
 }
 
-// ストア
+// ストアとVuetify Display
 const authStore = useAuthStore()
+const { smAndDown } = useDisplay()
 
 // リアクティブデータ
 const employees = ref<Employee[]>([])
@@ -564,6 +761,7 @@ const departments = ref<Department[]>([{ id: null, name: '全課' }])
 const selectedDepartment = ref<number | null>(null)
 const searchQuery = ref('')
 const activeHighlights = ref<Record<string, boolean>>({})
+const searchLoading = ref(false)
 
 // ダイアログ・フォーム状態
 const dialog = ref(false)
@@ -614,20 +812,31 @@ const myPresence = computed<Presence>(() => {
   }
 })
 
+// お気に入りと履歴を合算した候補 (Autocomplete用)
+const destinationSuggestions = computed<string[]>(() => {
+  const items: string[] = []
+  favorites.value.forEach(f => {
+    if (f.destination && !items.includes(f.destination)) {
+      items.push(f.destination)
+    }
+  })
+  recents.value.forEach(r => {
+    if (r.destination && !items.includes(r.destination)) {
+      items.push(r.destination)
+    }
+  })
+  return items
+})
+
 // グループ別に社員をマッピングし、フィルター適用後のデータを取得
 const filteredGroups = computed<GroupWithEmployees[]>(() => {
   const groupsMap: Record<number, GroupWithEmployees> = {}
 
   // 1. 各社員のフィルタリング
   const filteredEmployees = employees.value.filter(emp => {
-    // 課での絞り込み
+    // 課での絞り込み (クライアント側の追加フィルタ)
     if (selectedDepartment.value !== null && emp.department !== selectedDepartment.value) {
       return false
-    }
-    // 検索ワードでの絞り込み
-    if (searchQuery.value) {
-      const q = searchQuery.value.toLowerCase()
-      return emp.name.toLowerCase().includes(q) || emp.employee_no.toLowerCase().includes(q)
     }
     return true
   })
@@ -664,6 +873,59 @@ const filteredGroups = computed<GroupWithEmployees[]>(() => {
   return Object.values(groupsMap).sort((a, b) => {
     return a.departmentId - b.departmentId || a.id - b.id
   })
+})
+
+// アバターの配色を生成する関数 (ビジュアル改善)
+const getAvatarColor = (name: string) => {
+  const colors = ['teal-darken-1', 'indigo-darken-1', 'blue-darken-1', 'cyan-darken-2', 'deep-purple-darken-1', 'purple-darken-1', 'pink-darken-1', 'orange-darken-2', 'blue-grey-darken-1']
+  let hash = 0
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash)
+  }
+  const index = Math.abs(hash) % colors.length
+  return colors[index]
+}
+
+// 自然言語検索APIとの連携 (検索UI & 自然言語検索の高度化)
+let searchDebounceTimeout: number | null = null
+
+const performSearch = async () => {
+  searchLoading.value = true
+  try {
+    const params: any = {}
+    if (selectedDepartment.value) {
+      params.department = selectedDepartment.value
+    }
+    
+    if (searchQuery.value && searchQuery.value.trim()) {
+      params.q = searchQuery.value.trim()
+      const res = await api.get('/presence/search/', { params })
+      employees.value = res.data
+    } else {
+      // 検索クエリが空なら全件取得
+      const res = await api.get('/presence/', { params })
+      employees.value = res.data
+    }
+  } catch (e) {
+    console.error('Search failed:', e)
+  } finally {
+    searchLoading.value = false
+  }
+}
+
+// 検索入力の監視 (Debounce処理)
+watch(searchQuery, () => {
+  if (searchDebounceTimeout) {
+    clearTimeout(searchDebounceTimeout)
+  }
+  searchDebounceTimeout = window.setTimeout(() => {
+    performSearch()
+  }, 350)
+})
+
+// 課選択の監視 (即時リロード)
+watch(selectedDepartment, () => {
+  performSearch()
 })
 
 // 初期データ（一覧）の読み込み
@@ -778,6 +1040,43 @@ const selectStatus = (statusKey: string) => {
   }
 }
 
+// ワンクリッククイック状況更新 (操作性改善)
+const quickUpdateStatus = async (statusKey: string) => {
+  const def = getStatusDefinition(statusKey)
+  // 入力が必要な状態（外出や会議など）はダイアログを開く
+  if (def.requiresDestination === 'required' || def.requiresReturnTime === 'required') {
+    form.value.status = statusKey
+    selectStatus(statusKey)
+    openUpdateDialog()
+    return
+  }
+
+  submitting.value = true
+  try {
+    const payload = {
+      status: statusKey,
+      destination: '',
+      return_time: null
+    }
+
+    const res = await api.patch('/presence/me/', payload)
+    
+    // 成功時、ローカルのデータも更新する（APIレスポンスから反映）
+    const myEmp = employees.value.find(e => e.employee_no === authStore.currentUserNo)
+    if (myEmp) {
+      myEmp.presence = res.data
+    }
+    if (myProfile.value) {
+      myProfile.value.presence = res.data
+    }
+  } catch (error: any) {
+    console.error('Failed to quick update presence:', error)
+    alert('更新に失敗しました。')
+  } finally {
+    submitting.value = false
+  }
+}
+
 // 状況更新の送信
 const submitUpdate = async () => {
   errorMessage.value = ''
@@ -806,6 +1105,9 @@ const submitUpdate = async () => {
     const myEmp = employees.value.find(e => e.employee_no === authStore.currentUserNo)
     if (myEmp) {
       myEmp.presence = res.data
+    }
+    if (myProfile.value) {
+      myProfile.value.presence = res.data
     }
 
     closeUpdateDialog()
@@ -939,8 +1241,16 @@ const handlePresenceUpdated = (data: any) => {
   }
 }
 
-// Composable の利用
-const { connect } = usePresenceSSE(handlePresenceUpdated)
+// Composable の利用 (再接続時のデータリロード対応)
+const { isConnected, connect } = usePresenceSSE(
+  handlePresenceUpdated,
+  (isReconnect) => {
+    if (isReconnect) {
+      console.log('SSE connection re-established. Re-fetching presence board data...')
+      loadInitialData()
+    }
+  }
+)
 
 onMounted(() => {
   loadInitialData()
@@ -971,10 +1281,49 @@ export default {
 }
 
 .transition-all {
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 .gap-4 {
   gap: 16px;
+}
+
+.gap-2 {
+  gap: 8px;
+}
+
+/* Glassmorphism & custom styles */
+.glass-card {
+  background: rgba(255, 255, 255, 0.8) !important;
+  backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.4) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.04) !important;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
+}
+
+.glass-card:hover {
+  box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.08) !important;
+}
+
+.app-bar-gradient {
+  background: linear-gradient(135deg, #0d9488 0%, #115e59 100%) !important;
+  color: white !important;
+}
+
+.bg-slate-50 {
+  background-color: #f8fafc !important;
+}
+
+.hover-row {
+  transition: background-color 0.2s ease;
+}
+
+.hover-row:hover {
+  background-color: rgba(15, 118, 110, 0.04) !important;
+}
+
+.border-start-solid {
+  border-left-style: solid !important;
 }
 </style>

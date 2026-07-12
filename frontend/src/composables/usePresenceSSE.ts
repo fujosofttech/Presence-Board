@@ -1,12 +1,16 @@
 import { ref, onUnmounted } from 'vue'
 
-export function usePresenceSSE(onPresenceUpdated: (data: any) => void) {
+export function usePresenceSSE(
+  onPresenceUpdated: (data: any) => void,
+  onConnected?: (isReconnect: boolean) => void
+) {
   const isConnected = ref(false)
   const error = ref<any>(null)
   let eventSource: EventSource | null = null
   let reconnectTimeout: number | null = null
   let reconnectDelay = 1000 // 初期再接続遅延（1秒）
   const maxReconnectDelay = 30000 // 最大30秒
+  let hasConnectedOnce = false
 
   const connect = () => {
     if (eventSource) {
@@ -19,6 +23,10 @@ export function usePresenceSSE(onPresenceUpdated: (data: any) => void) {
       isConnected.value = true
       error.value = null
       reconnectDelay = 1000 // 接続成功時に遅延をリセット
+      if (onConnected) {
+        onConnected(hasConnectedOnce)
+      }
+      hasConnectedOnce = true
     }
 
     eventSource.addEventListener('presence_updated', (event: MessageEvent) => {
