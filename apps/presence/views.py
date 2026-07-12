@@ -1,9 +1,9 @@
 import json
 import queue
 from django.db import transaction
-from django.db.models import Q
 from django.http import StreamingHttpResponse
 from django.utils import timezone
+from apps.presence.services.search_parser import SearchParser
 from rest_framework import status
 from rest_framework.generics import ListAPIView
 from rest_framework.permissions import IsAuthenticated
@@ -227,66 +227,9 @@ class SearchAPIView(ListAPIView):
         group_id = self.request.query_params.get('group')
 
         if q:
-            import re
-            # 全角・半角スペースでキーワードを分割
-            keywords = re.split(r'\s+', q.strip())
-            
-            # 自然言語用の敬称・日付などのノイズワード定義
-            NOISE_WORDS = {"本日", "今日", "予定", "さん", "くん", "様"}
-            
-            # 日本語状態名から状態コードへのマッピング定義
-            STATUS_MAP = {
-                "在席": "PRESENT",
-                "在籍": "PRESENT",
-                "客先": "CUSTOMER",
-                "常駐": "CUSTOMER",
-                "外出": "OUT",
-                "出張": "OUT",
-                "会議": "MEETING",
-                "打合せ": "MEETING",
-                "在宅": "REMOTE",
-                "リモート": "REMOTE",
-                "テレワーク": "REMOTE",
-                "休暇": "HOLIDAY",
-                "休み": "HOLIDAY",
-                "有給": "HOLIDAY",
-                "退社": "LEAVE",
-                "帰宅": "LEAVE",
-                "直帰": "DIRECT_HOME"
-            }
-            
-            and_condition = Q()
-            for keyword in keywords:
-                if not keyword:
-                    continue
-                
-                part_q = Q()
-                
-                # 敬称などを除外したクリーンなキーワードを作成
-                clean_keyword = keyword
-                for noise in ["さん", "くん", "様"]:
-                    if clean_keyword.endswith(noise) and len(clean_keyword) > len(noise):
-                        clean_keyword = clean_keyword[:-len(noise)]
-                
-                # キーワードが純粋なノイズワードでなければ、部分一致検索の対象にする
-                if clean_keyword not in NOISE_WORDS:
-                    part_q |= Q(name__icontains=clean_keyword)
-                    part_q |= Q(employee_no__icontains=clean_keyword)
-                    part_q |= Q(presence__destination__icontains=clean_keyword)
-                    part_q |= Q(presence__status__name__icontains=clean_keyword)
-                    part_q |= Q(department__name__icontains=clean_keyword)
-                    part_q |= Q(group__name__icontains=clean_keyword)
-                
-                # キーワード内に状態日本語名が含まれる場合、ステータスコード検索を追加
-                for jp_status, en_status in STATUS_MAP.items():
-                    if jp_status in clean_keyword:
-                        part_q |= Q(presence__status__name=en_status)
-                
-                if part_q:
-                    and_condition &= part_q
-            
-            if and_condition:
-                queryset = queryset.filter(and_condition)
+            conditions = SearchParser.parse_query_to_conditions(q)
+            if conditions:
+                queryset = queryset.filter(*conditions)
 
         if name:
             queryset = queryset.filter(name__icontains=name)

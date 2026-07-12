@@ -178,6 +178,7 @@ class PresenceSearchAPITestCase(APITestCase):
         
         self.status_present = StatusMaster.objects.create(name='PRESENT', display_order=1)
         self.status_out = StatusMaster.objects.create(name='OUT', display_order=2)
+        self.status_remote = StatusMaster.objects.create(name='REMOTE', display_order=3)
 
         # テスト社員の作成
         self.emp1 = Employee.objects.create(
@@ -188,6 +189,10 @@ class PresenceSearchAPITestCase(APITestCase):
             employee_no='E0002', name='佐藤花子', email='sato@example.com',
             department=self.dept_sales, group=self.group_sales1, display_order=2
         )
+        self.emp3 = Employee.objects.create(
+            employee_no='E0003', name='鈴木一郎', email='suzuki@example.com',
+            department=self.dept_dev, group=self.group_dev1, display_order=3
+        )
 
         # Presence の設定
         Presence.objects.create(
@@ -195,6 +200,9 @@ class PresenceSearchAPITestCase(APITestCase):
         )
         Presence.objects.create(
             employee=self.emp2, status=self.status_out, destination='〇〇商事', updated_by=self.user
+        )
+        Presence.objects.create(
+            employee=self.emp3, status=self.status_remote, destination='', updated_by=self.user
         )
 
         self.search_url = reverse('presence:presence-search')
@@ -209,7 +217,7 @@ class PresenceSearchAPITestCase(APITestCase):
         """パラメータなしの場合は全社員が返ること"""
         response = self.client.get(self.search_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 2)
+        self.assertEqual(len(response.data), 3)
 
     def test_search_q_by_name(self):
         """qによる氏名部分一致検索が正しく機能すること"""
@@ -241,25 +249,55 @@ class PresenceSearchAPITestCase(APITestCase):
 
     def test_search_q_natural_language(self):
         """自然言語を意識したq検索（敬称除外、部署名検索、日本語状態名検索、複数語AND検索）が動作すること"""
-        # 1. 敬称除外テスト
+        # 「田中さん」→「田中」 (敬称除外) -> テストデータにはいないが、山田さんでテスト
         response = self.client.get(self.search_url, {'q': '山田さん'})
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]['name'], '山田太郎')
 
-        # 2. 部署名検索テスト
-        response = self.client.get(self.search_url, {'q': '営業部'})
+        # 「本日 外出」 (ノイズ除外＋ステータスマップ)
+        response = self.client.get(self.search_url, {'q': '本日 外出'})
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]['name'], '佐藤花子')
 
-        # 3. 日本語状態名検索テスト
-        response = self.client.get(self.search_url, {'q': '在籍'})
+        # 「今日 在宅」 (ノイズ除外＋ステータスマップ)
+        response = self.client.get(self.search_url, {'q': '今日 在宅'})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '鈴木一郎')
+
+        # 「営業部 外出」 (複数語AND)
+        response = self.client.get(self.search_url, {'q': '営業部 外出'})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '佐藤花子')
+
+        # 「山田 開発部 在籍」 (3語AND)
+        response = self.client.get(self.search_url, {'q': '山田 開発部 在籍'})
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]['name'], '山田太郎')
 
-        # 4. 複数語 AND 検索テスト
-        response = self.client.get(self.search_url, {'q': '今日 営業部 外出'})
+        # 「PRESENT」 (英語ステータス直接検索)
+        response = self.client.get(self.search_url, {'q': 'PRESENT'})
         self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['name'], '佐藤花子')
+        self.assertEqual(response.data[0]['name'], '山田太郎')
+
+        # 「present」 (英語ステータス直接検索・小文字)
+        response = self.client.get(self.search_url, {'q': 'present'})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '山田太郎')
+
+        # 「在席」 (ステータスマップ「在席」)
+        response = self.client.get(self.search_url, {'q': '在席'})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '山田太郎')
+
+        # 「在宅」 (ステータスマップ「在宅」)
+        response = self.client.get(self.search_url, {'q': '在宅'})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '鈴木一郎')
+
+        # 「リモート」 (ステータスマップ「リモート」)
+        response = self.client.get(self.search_url, {'q': 'リモート'})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '鈴木一郎')
 
         # マッチしない組み合わせ
         response = self.client.get(self.search_url, {'q': '山田 外出'})
@@ -281,8 +319,9 @@ class PresenceSearchAPITestCase(APITestCase):
 
         # department
         response = self.client.get(self.search_url, {'department': self.dept_dev.id})
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['name'], '山田太郎')
+        self.assertEqual(len(response.data), 2)
+        self.assertTrue(any(emp['name'] == '山田太郎' for emp in response.data))
+        self.assertTrue(any(emp['name'] == '鈴木一郎' for emp in response.data))
 
         # group
         response = self.client.get(self.search_url, {'group': self.group_sales1.id})
