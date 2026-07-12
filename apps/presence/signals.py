@@ -18,14 +18,17 @@ def log_login_success(sender, request, user, **kwargs):
     employee = getattr(user, 'employee', None)
     ip_address = get_client_ip(request) if request else None
     
-    AuditLog.objects.create(
-        user=user,
-        employee=employee,
-        action='LOGIN_SUCCESS',
-        description=f"ユーザー {user.username} がログインに成功しました。",
-        ip_address=ip_address
-    )
-    logger.info(f"AuditLog: LOGIN_SUCCESS - user={user.username}")
+    try:
+        AuditLog.objects.create(
+            user=user,
+            employee=employee,
+            action='LOGIN_SUCCESS',
+            description=f"ユーザー {user.username} がログインに成功しました。",
+            ip_address=ip_address
+        )
+        logger.info(f"AuditLog: LOGIN_SUCCESS - user={user.username}")
+    except Exception as e:
+        logger.error(f"Failed to create AuditLog for LOGIN_SUCCESS: {e}")
 
 
 @receiver(user_logged_out)
@@ -36,14 +39,17 @@ def log_logout(sender, request, user, **kwargs):
         employee = getattr(user, 'employee', None) if user else None
         ip_address = get_client_ip(request) if request else None
         
-        AuditLog.objects.create(
-            user=user,
-            employee=employee,
-            action='LOGOUT',
-            description=f"ユーザー {user.username if user else 'Unknown'} がログアウトしました。",
-            ip_address=ip_address
-        )
-        logger.info(f"AuditLog: LOGOUT - user={user.username if user else 'Unknown'}")
+        try:
+            AuditLog.objects.create(
+                user=user,
+                employee=employee,
+                action='LOGOUT',
+                description=f"ユーザー {user.username if user else 'Unknown'} がログアウトしました。",
+                ip_address=ip_address
+            )
+            logger.info(f"AuditLog: LOGOUT - user={user.username if user else 'Unknown'}")
+        except Exception as e:
+            logger.error(f"Failed to create AuditLog for LOGOUT: {e}")
 
 
 @receiver(user_login_failed)
@@ -54,14 +60,17 @@ def log_login_failed(sender, credentials, request, **kwargs):
     user = User.objects.filter(username=username).first()
     employee = getattr(user, 'employee', None) if user else None
     
-    AuditLog.objects.create(
-        user=user,
-        employee=employee,
-        action='LOGIN_FAILED',
-        description=f"ユーザー {username} のログイン試行に失敗しました。",
-        ip_address=ip_address
-    )
-    logger.info(f"AuditLog: LOGIN_FAILED - username={username}")
+    try:
+        AuditLog.objects.create(
+            user=user,
+            employee=employee,
+            action='LOGIN_FAILED',
+            description=f"ユーザー {username} のログイン試行に失敗しました。",
+            ip_address=ip_address
+        )
+        logger.info(f"AuditLog: LOGIN_FAILED - username={username}")
+    except Exception as e:
+        logger.error(f"Failed to create AuditLog for LOGIN_FAILED: {e}")
 
 
 # --- 2. 状態変更関連の監査ログ ---
@@ -84,14 +93,17 @@ def log_presence_save(sender, instance, created, **kwargs):
     action_type = "PRESENCE_UPDATE"
     desc = f"状態が更新されました。状態: {status_name}, 行先: {destination}, 開始: {start_time}, 戻り予定: {end_time}。"
     
-    AuditLog.objects.create(
-        user=performer_user,
-        employee=instance.employee,
-        action=action_type,
-        description=desc,
-        ip_address=ip_address
-    )
-    logger.info(f"AuditLog: PRESENCE_UPDATE - employee={instance.employee.name} status={status_name}")
+    try:
+        AuditLog.objects.create(
+            user=performer_user,
+            employee=instance.employee,
+            action=action_type,
+            description=desc,
+            ip_address=ip_address
+        )
+        logger.info(f"AuditLog: PRESENCE_UPDATE - employee={instance.employee.name} status={status_name}")
+    except Exception as e:
+        logger.error(f"Failed to create AuditLog for PRESENCE_UPDATE: {e}")
 
 
 # --- 3. 管理操作関連の監査ログ ---
@@ -113,14 +125,17 @@ def handle_admin_op(sender, instance, action_verb):
     
     desc = f"{model_name} が{action_verb}されました。詳細: {str(instance)}"
     
-    AuditLog.objects.create(
-        user=current_user,
-        employee=target_employee,
-        action='ADMIN_OP',
-        description=desc,
-        ip_address=ip_address
-    )
-    logger.info(f"AuditLog: ADMIN_OP - model={sender.__name__} action={action_verb}")
+    try:
+        AuditLog.objects.create(
+            user=current_user,
+            employee=target_employee,
+            action='ADMIN_OP',
+            description=desc,
+            ip_address=ip_address
+        )
+        logger.info(f"AuditLog: ADMIN_OP - model={sender.__name__} action={action_verb}")
+    except Exception as e:
+        logger.error(f"Failed to create AuditLog for ADMIN_OP: {e}")
 
 
 @receiver(post_save)

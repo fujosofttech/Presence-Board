@@ -730,8 +730,7 @@ class ApplyScheduledStatusTestCase(APITestCase):
         # Historyが増えていないことを確認
         new_history_count = PresenceHistory.objects.filter(employee=self.employee).count()
         self.assertEqual(new_history_count, 1)
-<<<<<<< Updated upstream
-=======
+
 
     def test_batch_broadcast_on_apply_scheduled_status(self):
         """自動反映バッチの実行時に SSE 経由でステータス更新イベントがブロードキャストされることを確認"""
@@ -863,29 +862,30 @@ class AuditLogAndHistorySearchViewTestCase(APITestCase):
         # 1. 絞り込みなしで全件取得
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 2)
+        self.assertEqual(response.data['count'], 2)
+        self.assertEqual(len(response.data['results']), 2)
 
         # 2. 社員(ID)で絞り込み
         response = self.client.get(url, {'employee': self.employee.id})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 2)
+        self.assertEqual(response.data['count'], 2)
 
         # 3. 社員番号で絞り込み
         response = self.client.get(url, {'employee': 'E9999'})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 2)
+        self.assertEqual(response.data['count'], 2)
 
         # 4. 状態(ID)で絞り込み
         response = self.client.get(url, {'status': self.status_out.id})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['destination'], '客先A')
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['destination'], '客先A')
 
         # 5. 状態名で絞り込み
         response = self.client.get(url, {'status': 'PRESENT'})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['destination'], '自社')
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['destination'], '自社')
 
         # 6. 期間(start_date / end_date)で絞り込み
         tomorrow_str = (timezone.localdate() + timedelta(days=1)).strftime('%Y-%m-%d')
@@ -893,9 +893,51 @@ class AuditLogAndHistorySearchViewTestCase(APITestCase):
 
         response = self.client.get(url, {'start_date': yesterday_str, 'end_date': tomorrow_str})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 2)
+        self.assertEqual(response.data['count'], 2)
 
         # 7. 不正な日付形式
         response = self.client.get(url, {'start_date': 'invalid-date'})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data['error_code'], 'E0001')
+
+    def test_prune_old_data_command(self):
+        """prune_old_data コマンドが指定日数を経過した履歴と監査ログを正しく削除することを確認"""
+        # 1. 閾値より古いデータ
+        old_time = timezone.now() - timedelta(days=400)
+        h_old = PresenceHistory.objects.create(
+            employee=self.employee,
+            status=self.status_present,
+            destination="大昔",
+        )
+        PresenceHistory.objects.filter(id=h_old.id).update(created_at=old_time)
+
+        audit_old = AuditLog.objects.create(
+            action='LOGIN_SUCCESS',
+            description='大昔のログイン',
+        )
+        AuditLog.objects.filter(id=audit_old.id).update(created_at=old_time)
+
+        # 2. 新しいデータ (閾値以内)
+        h_new = PresenceHistory.objects.create(
+            employee=self.employee,
+            status=self.status_present,
+            destination="最近",
+        )
+        audit_new = AuditLog.objects.create(
+            action='LOGIN_SUCCESS',
+            description='最近のログイン',
+        )
+
+        # コマンド実行
+        out = StringIO()
+        call_command('prune_old_data', stdout=out)
+        
+        # 削除のログ文が出力されているか
+        self.assertIn("PresenceHistory", out.getvalue())
+        self.assertIn("AuditLog", out.getvalue())
+
+        # 古いデータが削除され、新しいデータが残っているか
+        self.assertFalse(PresenceHistory.objects.filter(id=h_old.id).exists())
+        self.assertTrue(PresenceHistory.objects.filter(id=h_new.id).exists())
+        self.assertFalse(AuditLog.objects.filter(id=audit_old.id).exists())
+        self.assertTrue(AuditLog.objects.filter(id=audit_new.id).exists())
