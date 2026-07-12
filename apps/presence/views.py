@@ -1,4 +1,5 @@
 import json
+import logging
 import queue
 from django.db import transaction
 from django.http import StreamingHttpResponse
@@ -15,7 +16,7 @@ from datetime import timedelta
 from django.db.models import Max
 from apps.employees.models import Employee, StatusMaster
 from apps.presence.models import Presence, PresenceHistory, FavoriteDestination, ScheduledStatus
-from .events import event_publisher, MemoryEventPublisher
+from .events import event_publisher
 from .serializers import (
     PresenceListSerializer, 
     PresenceSerializer, 
@@ -26,6 +27,8 @@ from .serializers import (
 )
 from .services.current_employee import get_current_employee
 
+logger = logging.getLogger(__name__)
+
 
 class SSEEventStreamView(APIView):
     """
@@ -34,23 +37,33 @@ class SSEEventStreamView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        is_memory_bus = isinstance(event_publisher, MemoryEventPublisher)
-        q = event_publisher.register() if is_memory_bus else queue.Queue()
+        subscription = event_publisher.subscribe()
 
         def event_stream():
+            logger.info(f"SSE client connected: user={request.user}")
             yield "event: welcome\ndata: {}\n\n"
+            
+            # settings または環境変数からハートビート間隔を取得 (デフォルトは 15 秒)
+            from django.conf import settings
+            heartbeat_interval = getattr(settings, 'SSE_HEARTBEAT_INTERVAL', 15)
+            # もし settings のインターバルが 30 秒以上なら、切断検知をより速くするために 15 秒にする
+            if heartbeat_interval > 15:
+                heartbeat_interval = 15
+
             try:
                 while True:
                     try:
-                        # 30秒間キューからのイベント発生を待つ
-                        event_name, data = q.get(timeout=30)
+                        event_name, data = subscription.get(timeout=heartbeat_interval)
                         yield f"event: {event_name}\ndata: {json.dumps(data)}\n\n"
                     except queue.Empty:
-                        # 30秒イベントがない場合はハートビートを送信
                         yield "event: heartbeat\ndata: {}\n\n"
+            except GeneratorExit:
+                logger.info(f"SSE client disconnected (GeneratorExit): user={request.user}")
+            except Exception as e:
+                logger.error(f"SSE stream error for user={request.user}: {str(e)}")
             finally:
-                if is_memory_bus:
-                    event_publisher.unregister(q)
+                subscription.close()
+                logger.info(f"SSE connection cleanup finished: user={request.user}")
 
         response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
         response["Cache-Control"] = "no-cache"

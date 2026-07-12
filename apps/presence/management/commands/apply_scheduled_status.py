@@ -3,6 +3,7 @@ from django.utils import timezone
 from django.db import transaction
 from django.contrib.auth.models import User
 from apps.presence.models import Presence, PresenceHistory, ScheduledStatus
+from apps.presence.events import event_publisher
 
 class Command(BaseCommand):
     help = '今日の予定（ScheduledStatus）を Presence へ適用します'
@@ -69,6 +70,20 @@ class Command(BaseCommand):
                         end_datetime=target_end_datetime,
                         updated_by=system_user
                     )
+
+                    # SSE イベントを発行 (TASK-011)
+                    updated_at_iso = presence.updated_at.isoformat()
+                    return_time_iso = presence.end_datetime.isoformat() if presence.end_datetime else ""
+                    
+                    event_data = {
+                        "employee_id": employee.id,
+                        "employee_no": employee.employee_no,
+                        "status": presence.status.name,
+                        "destination": presence.destination,
+                        "return_time": return_time_iso,
+                        "updated_at": updated_at_iso
+                    }
+                    event_publisher.broadcast("presence_updated", event_data)
 
                     applied_count += 1
             except Exception as e:

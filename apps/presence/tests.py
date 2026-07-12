@@ -24,6 +24,28 @@ class SSEStreamViewTestCase(APITestCase):
         self.assertEqual(response['Content-Type'], 'text/event-stream')
         self.assertEqual(response['Cache-Control'], 'no-cache')
 
+    def test_invalid_event_name_raises_value_error(self):
+        """イベント種別整理: 定義外のイベント名をブロードキャストしようとした場合に ValueError が発生することを確認"""
+        from apps.presence.events import event_publisher
+        with self.assertRaises(ValueError):
+            event_publisher.broadcast("invalid_event_type_name_test", {"dummy": "data"})
+
+    def test_event_publisher_subscribe_and_broadcast(self):
+        """Subscription と MemoryEventPublisher による購読と配信のテスト"""
+        from apps.presence.events import event_publisher
+        subscription = event_publisher.subscribe()
+        
+        # 配信
+        test_data = {"test_key": "test_val"}
+        event_publisher.broadcast("presence_updated", test_data)
+        
+        # 受信
+        event_name, data = subscription.get(timeout=1)
+        self.assertEqual(event_name, "presence_updated")
+        self.assertEqual(data, test_data)
+        
+        subscription.close()
+
 class PresenceAPITestCase(APITestCase):
     def setUp(self):
         # ユーザーと認証設定
