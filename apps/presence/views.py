@@ -4,6 +4,7 @@ from django.db import transaction
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 from apps.presence.services.search_parser import SearchParser
+from apps.presence.services.search_builder import SearchBuilder
 from rest_framework import status
 from rest_framework.generics import ListAPIView
 from rest_framework.permissions import IsAuthenticated
@@ -227,7 +228,8 @@ class SearchAPIView(ListAPIView):
         group_id = self.request.query_params.get('group')
 
         if q:
-            conditions = SearchParser.parse_query_to_conditions(q)
+            query_dto = SearchParser.parse_query(q)
+            conditions = SearchBuilder.build_conditions(query_dto)
             if conditions:
                 queryset = queryset.filter(*conditions)
 
