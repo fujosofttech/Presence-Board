@@ -7,6 +7,8 @@ from apps.presence.models import Presence, PresenceHistory, FavoriteDestination,
 from apps.presence.events import event_publisher, MemoryEventPublisher
 from django.utils import timezone
 from datetime import timedelta
+from django.core.management import call_command
+from io import StringIO
 
 
 class SSEStreamViewTestCase(APITestCase):
@@ -522,9 +524,6 @@ class ScheduledStatusAPITestCase(APITestCase):
         self.assertEqual(res4.status_code, status.HTTP_201_CREATED)
         self.assertEqual(res4.data['destination'], "再登録行先")
 
-
-from django.core.management import call_command
-from io import StringIO
 
 class ApplyScheduledStatusTestCase(APITestCase):
     def setUp(self):

@@ -7,6 +7,15 @@
         社内行先・在席管理システム
       </v-app-bar-title>
       <v-spacer></v-spacer>
+      <v-btn
+        color="teal-lighten-5"
+        variant="flat"
+        prepend-icon="mdi-cog"
+        class="font-weight-bold text-teal-darken-4 mr-4"
+        to="/admin"
+      >
+        管理画面
+      </v-btn>
       <v-chip class="mr-4 text-subtitle-1" color="teal-lighten-4" variant="flat">
         <v-icon icon="mdi-account" class="mr-1" />
         {{ myInfo?.name || 'ゲスト' }} (自分)

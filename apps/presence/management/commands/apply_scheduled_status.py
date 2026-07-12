@@ -2,7 +2,6 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 from django.db import transaction
 from django.contrib.auth.models import User
-from apps.employees.models import Employee
 from apps.presence.models import Presence, PresenceHistory, ScheduledStatus
 
 class Command(BaseCommand):
