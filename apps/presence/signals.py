@@ -12,19 +12,40 @@ from apps.presence.middleware import get_current_user, get_current_request, get_
 logger = logging.getLogger(__name__)
 
 
-# --- 1. ログイン関連の監査ログ ---
+def get_ai_info(request):
+    """
+    リクエストがDRFのTokenAuthenticationで認証されている場合、AIエージェントの情報（トークンのプレフィックス）を取得する。
+    """
+    if not request:
+        return ""
+    auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+    if auth_header.startswith('Token '):
+        parts = auth_header.split(' ')
+        if len(parts) == 2:
+            token_key = parts[1]
+            from rest_framework.authtoken.models import Token
+            try:
+                token = Token.objects.select_related('user').get(key=token_key)
+                return f" [AIエージェント操作 - Token: {token.key[:8]}...]"
+            except Token.DoesNotExist:
+                pass
+    return ""
+
+
+# --- 1. ログイン関連 of 監査ログ ---
 
 @receiver(user_logged_in)
 def log_login_success(sender, request, user, **kwargs):
     employee = getattr(user, 'employee', None)
     ip_address = get_client_ip(request) if request else None
+    ai_suffix = get_ai_info(request)
     
     try:
         AuditLog.objects.create(
             user=user,
             employee=employee,
             action='LOGIN_SUCCESS',
-            description=f"ユーザー {user.username} がログインに成功しました。",
+            description=f"ユーザー {user.username} がログインに成功しました。{ai_suffix}".strip(),
             ip_address=ip_address
         )
         logger.info(f"AuditLog: LOGIN_SUCCESS - user={user.username}")
@@ -39,13 +60,14 @@ def log_logout(sender, request, user, **kwargs):
             user = None
         employee = getattr(user, 'employee', None) if user else None
         ip_address = get_client_ip(request) if request else None
+        ai_suffix = get_ai_info(request)
         
         try:
             AuditLog.objects.create(
                 user=user,
                 employee=employee,
                 action='LOGOUT',
-                description=f"ユーザー {user.username if user else 'Unknown'} がログアウトしました。",
+                description=f"ユーザー {user.username if user else 'Unknown'} がログアウトしました。{ai_suffix}".strip(),
                 ip_address=ip_address
             )
             logger.info(f"AuditLog: LOGOUT - user={user.username if user else 'Unknown'}")
@@ -57,6 +79,7 @@ def log_logout(sender, request, user, **kwargs):
 def log_login_failed(sender, credentials, request, **kwargs):
     username = credentials.get('username', 'Unknown')
     ip_address = get_client_ip(request) if request else None
+    ai_suffix = get_ai_info(request)
     
     user = User.objects.filter(username=username).first()
     employee = getattr(user, 'employee', None) if user else None
@@ -66,7 +89,7 @@ def log_login_failed(sender, credentials, request, **kwargs):
             user=user,
             employee=employee,
             action='LOGIN_FAILED',
-            description=f"ユーザー {username} のログイン試行に失敗しました。",
+            description=f"ユーザー {username} のログイン試行に失敗しました。{ai_suffix}".strip(),
             ip_address=ip_address
         )
         logger.info(f"AuditLog: LOGIN_FAILED - username={username}")
@@ -81,6 +104,7 @@ def log_presence_save(sender, instance, created, **kwargs):
     current_user = get_current_user()
     current_request = get_current_request()
     ip_address = get_client_ip(current_request) if current_request else None
+    ai_suffix = get_ai_info(current_request)
     
     performer_user = current_user or instance.updated_by
     if performer_user and not performer_user.is_authenticated:
@@ -92,7 +116,7 @@ def log_presence_save(sender, instance, created, **kwargs):
     end_time = instance.end_datetime.isoformat() if instance.end_datetime else "なし"
     
     action_type = "PRESENCE_UPDATE"
-    desc = f"状態が更新されました。状態: {status_name}, 行先: {destination}, 開始: {start_time}, 戻り予定: {end_time}。"
+    desc = f"状態が更新されました。状態: {status_name}, 行先: {destination}, 開始: {start_time}, 戻り予定: {end_time}。{ai_suffix}".strip()
     
     try:
         AuditLog.objects.create(
@@ -120,11 +144,12 @@ def handle_admin_op(sender, instance, action_verb):
         current_user = None
     current_request = get_current_request()
     ip_address = get_client_ip(current_request) if current_request else None
+    ai_suffix = get_ai_info(current_request)
     
     model_name = get_model_verbose_name(sender)
     target_employee = instance if isinstance(instance, Employee) else None
     
-    desc = f"{model_name} が{action_verb}されました。詳細: {str(instance)}"
+    desc = f"{model_name} が{action_verb}されました。詳細: {str(instance)}。{ai_suffix}".strip()
     
     try:
         AuditLog.objects.create(

@@ -941,3 +941,62 @@ class AuditLogAndHistorySearchViewTestCase(APITestCase):
         self.assertTrue(PresenceHistory.objects.filter(id=h_new.id).exists())
         self.assertFalse(AuditLog.objects.filter(id=audit_old.id).exists())
         self.assertTrue(AuditLog.objects.filter(id=audit_new.id).exists())
+
+    def test_ai_token_operation_audit_log(self):
+        """Token認証を使用したリクエスト時に監査ログにAIエージェント情報が記録されることを確認"""
+        from rest_framework.authtoken.models import Token
+        token, _ = Token.objects.get_or_create(user=self.user)
+        
+        # ユーザーと社員のメールアドレスを一致させる
+        self.employee.email = self.user.email
+        self.employee.save()
+        
+        # クライアントでToken認証を使用
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {token.key}')
+        
+        # 在席情報を更新
+        url = reverse('presence:presence-me')
+        data = {
+            'status': 'OUT',
+            'destination': '客先B',
+            'return_time': '2026-07-12T23:59:59+09:00'
+        }
+        response = self.client.patch(url, data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # 生成された監査ログを確認
+        log = AuditLog.objects.filter(action='PRESENCE_UPDATE').first()
+        self.assertIsNotNone(log)
+        self.assertIn("AIエージェント操作", log.description)
+        self.assertIn(f"Token: {token.key[:8]}", log.description)
+
+    def test_mcp_tools(self):
+        """MCP用Python関数ツール群が正しく動作することを確認"""
+        from apps.presence.services import mcp_tools
+        
+        # 1. presence_update
+        res_update = mcp_tools.presence_update(
+            employee_no=self.employee.employee_no,
+            status_name='OUT',
+            destination='客先C',
+            end_datetime_str='2026-07-12T23:59:59+09:00',
+            performer_username=self.user.username
+        )
+        self.assertEqual(res_update['status'], 'OUT')
+        self.assertEqual(res_update['destination'], '客先C')
+        
+        # 2. employee_find
+        res_find = mcp_tools.employee_find(employee_no=self.employee.employee_no)
+        self.assertEqual(res_find['name'], self.employee.name)
+        self.assertEqual(res_find['status'], 'OUT')
+        self.assertEqual(res_find['destination'], '客先C')
+        
+        # 3. presence_search
+        res_search = mcp_tools.presence_search(query=self.employee.name)
+        self.assertEqual(len(res_search), 1)
+        self.assertEqual(res_search[0]['employee_no'], self.employee.employee_no)
+        
+        # 4. presence_list
+        res_list = mcp_tools.presence_list(department_name=self.department.name)
+        self.assertEqual(len(res_list), 1)
+        self.assertEqual(res_list[0]['employee_no'], self.employee.employee_no)
