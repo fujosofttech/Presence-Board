@@ -8,7 +8,7 @@ from apps.employees.models import Department, Group, WorkLocation, StatusMaster,
 class EmployeeAPITestCase(APITestCase):
     def setUp(self):
         # テスト用ユーザーの作成と認証設定
-        self.user = User.objects.create_user(username='testuser', password='password123')
+        self.user = User.objects.create_superuser(username='testuser', password='password123')
         self.token = Token.objects.create(user=self.user)
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
 

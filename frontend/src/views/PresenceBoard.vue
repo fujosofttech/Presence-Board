@@ -7,6 +7,16 @@
         社内行先・在席管理システム
       </v-app-bar-title>
       <v-spacer></v-spacer>
+      <v-btn
+        v-if="myProfile?.is_staff"
+        color="teal-lighten-5"
+        variant="flat"
+        prepend-icon="mdi-cog"
+        class="font-weight-bold text-teal-darken-4 mr-4"
+        to="/admin"
+      >
+        管理画面
+      </v-btn>
       <v-chip class="mr-4 text-subtitle-1" color="teal-lighten-4" variant="flat">
         <v-icon icon="mdi-account" class="mr-1" />
         {{ myInfo?.name || 'ゲスト' }} (自分)
@@ -536,6 +546,15 @@ interface ScheduledStatus {
   memo: string
 }
 
+interface MyProfile {
+  id: number
+  employee_no: string
+  name: string
+  email: string
+  is_staff: boolean
+  presence: Presence
+}
+
 // ストア
 const authStore = useAuthStore()
 
@@ -559,6 +578,7 @@ const form = ref({
 const favorites = ref<FavoriteDestination[]>([])
 const recents = ref<RecentDestination[]>([])
 const scheduledStatuses = ref<ScheduledStatus[]>([])
+const myProfile = ref<MyProfile | null>(null)
 
 // 予定管理関連
 const scheduleManagerDialog = ref(false)
@@ -574,11 +594,14 @@ const statusRule = computed<StatusInfo>(() => {
 
 // ログイン中の「自分」の情報
 const myInfo = computed(() => {
-  return employees.value.find(e => e.employee_no === authStore.currentUserNo) || null
+  return myProfile.value || employees.value.find(e => e.employee_no === authStore.currentUserNo) || null
 })
 
 // 自分の在籍状態（Presence）
 const myPresence = computed<Presence>(() => {
+  if (myProfile.value) {
+    return myProfile.value.presence
+  }
   if (myInfo.value) {
     return myInfo.value.presence
   }
@@ -646,17 +669,19 @@ const filteredGroups = computed<GroupWithEmployees[]>(() => {
 // 初期データ（一覧）の読み込み
 const loadInitialData = async () => {
   try {
-    const [deptRes, presRes, favRes, recRes] = await Promise.all([
+    const [deptRes, presRes, favRes, recRes, meRes] = await Promise.all([
       api.get('/departments/'),
       api.get('/presence/'),
       api.get('/destinations/favorites/'),
-      api.get('/destinations/recent/')
+      api.get('/destinations/recent/'),
+      api.get('/presence/me/')
     ])
     
     departments.value = [{ id: null, name: '全課' }, ...deptRes.data]
     employees.value = presRes.data
     favorites.value = favRes.data
     recents.value = recRes.data
+    myProfile.value = meRes.data
   } catch (error) {
     console.error('Failed to load initial data:', error)
   }
