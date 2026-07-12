@@ -213,3 +213,65 @@ class ScheduledStatus(TimestampModel):
 
     def __str__(self) -> str:
         return f"{self.employee.name} - {self.target_date} ({self.status.name})"
+
+
+class AuditLog(models.Model):
+    """
+    監査ログ (Audit Log)
+    """
+    ACTION_CHOICES = [
+        ('LOGIN_SUCCESS', 'ログイン成功'),
+        ('LOGIN_FAILED', 'ログイン失敗'),
+        ('LOGOUT', 'ログアウト'),
+        ('PRESENCE_UPDATE', '状態変更'),
+        ('ADMIN_OP', '管理操作'),
+    ]
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="audit_logs",
+        verbose_name="操作ユーザー",
+    )
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="audit_logs",
+        verbose_name="対象社員",
+    )
+    action = models.CharField(
+        max_length=50,
+        choices=ACTION_CHOICES,
+        verbose_name="操作種別",
+    )
+    description = models.TextField(
+        verbose_name="詳細内容",
+    )
+    ip_address = models.CharField(
+        max_length=45,
+        null=True,
+        blank=True,
+        verbose_name="IPアドレス",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="作成日時",
+    )
+
+    class Meta:
+        db_table = "audit_log"
+        verbose_name = "監査ログ"
+        verbose_name_plural = "監査ログ一覧"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["action", "created_at"], name="idx_audit_log_action_created"),
+            models.Index(fields=["employee", "created_at"], name="idx_audit_log_emp_created"),
+            models.Index(fields=["created_at"], name="idx_audit_log_created_at"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.action} - {self.user or 'System'} ({self.created_at})"

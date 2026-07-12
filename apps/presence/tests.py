@@ -3,7 +3,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 from django.contrib.auth.models import User
 from apps.employees.models import Department, Group, StatusMaster, Employee, WorkLocation
-from apps.presence.models import Presence, PresenceHistory, FavoriteDestination, ScheduledStatus
+from apps.presence.models import Presence, PresenceHistory, FavoriteDestination, ScheduledStatus, AuditLog
 from apps.presence.events import event_publisher, MemoryEventPublisher
 from django.utils import timezone
 from datetime import timedelta
@@ -730,3 +730,172 @@ class ApplyScheduledStatusTestCase(APITestCase):
         # Historyが増えていないことを確認
         new_history_count = PresenceHistory.objects.filter(employee=self.employee).count()
         self.assertEqual(new_history_count, 1)
+<<<<<<< Updated upstream
+=======
+
+    def test_batch_broadcast_on_apply_scheduled_status(self):
+        """自動反映バッチの実行時に SSE 経由でステータス更新イベントがブロードキャストされることを確認"""
+        from unittest.mock import patch
+        from apps.presence.models import ScheduledStatus
+        from datetime import date
+        
+        # 予定データの作成
+        ScheduledStatus.objects.create(
+            employee=self.employee,
+            target_date=date.today(),
+            status=self.status_out,
+            destination="本社"
+        )
+        
+        with patch('apps.presence.management.commands.apply_scheduled_status.event_publisher') as mock_pub:
+            # コマンド実行
+            call_command('apply_scheduled_status')
+            
+            # ブロードキャストが正しく呼ばれたか確認
+            mock_pub.broadcast.assert_called_once()
+            call_args = mock_pub.broadcast.call_args[0]
+            self.assertEqual(call_args[0], 'presence_updated')
+            self.assertEqual(call_args[1]['employee_no'], self.employee.employee_no)
+            self.assertEqual(call_args[1]['status'], 'OUT')
+
+
+class AuditLogAndHistorySearchViewTestCase(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='adminuser', email='admin@example.com', password='password123')
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+
+        self.department = Department.objects.create(name='開発部', display_order=1)
+        self.group = Group.objects.create(department=self.department, name='開発1G', display_order=1)
+        self.employee = Employee.objects.create(
+            employee_no='E9999',
+            name='テスト九郎',
+            email='test9@example.com',
+            department=self.department,
+            group=self.group,
+            display_order=100
+        )
+        self.status_present = StatusMaster.objects.create(name='PRESENT', display_order=1)
+        self.status_out = StatusMaster.objects.create(name='OUT', display_order=2)
+        
+        # 既存ログを一旦クリアしてテストしやすくする
+        AuditLog.objects.all().delete()
+        PresenceHistory.objects.all().delete()
+
+    def test_login_signals_create_audit_logs(self):
+        """ログイン・ログアウト・ログイン失敗シグナルが監査ログを生成することを確認"""
+        from django.contrib.auth.signals import user_logged_in, user_logged_out, user_login_failed
+        
+        # ログイン成功シグナル
+        user_logged_in.send(sender=User, request=None, user=self.user)
+        log1 = AuditLog.objects.filter(action='LOGIN_SUCCESS').first()
+        self.assertIsNotNone(log1)
+        self.assertIn("ログインに成功しました", log1.description)
+        self.assertEqual(log1.user, self.user)
+        
+        # ログアウトシグナル
+        user_logged_out.send(sender=User, request=None, user=self.user)
+        log2 = AuditLog.objects.filter(action='LOGOUT').first()
+        self.assertIsNotNone(log2)
+        self.assertIn("ログアウトしました", log2.description)
+        self.assertEqual(log2.user, self.user)
+        
+        # ログイン失敗シグナル
+        user_login_failed.send(sender=User, credentials={'username': 'adminuser'}, request=None)
+        log3 = AuditLog.objects.filter(action='LOGIN_FAILED').first()
+        self.assertIsNotNone(log3)
+        self.assertIn("ログイン試行に失敗しました", log3.description)
+        self.assertEqual(log3.user, self.user)
+
+    def test_presence_change_creates_audit_log(self):
+        """状態変更時に自動的に状態変更監査ログが作成されることを確認"""
+        Presence.objects.create(
+            employee=self.employee,
+            status=self.status_present,
+            destination="本社"
+        )
+        log = AuditLog.objects.filter(action='PRESENCE_UPDATE').first()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.employee, self.employee)
+        self.assertIn("状態: PRESENT", log.description)
+        self.assertIn("行先: 本社", log.description)
+
+    def test_admin_master_operations_create_audit_logs(self):
+        """管理者マスタ操作（作成・更新・削除）で管理操作ログが作成されることを確認"""
+        # 作成
+        new_dep = Department.objects.create(name='人事部', display_order=2)
+        log_create = AuditLog.objects.filter(action='ADMIN_OP', description__contains="課 が新規作成されました").first()
+        self.assertIsNotNone(log_create)
+        self.assertIn("人事部", log_create.description)
+
+        # 更新
+        new_dep.name = '総務部'
+        new_dep.save()
+        log_update = AuditLog.objects.filter(action='ADMIN_OP', description__contains="課 が更新されました").first()
+        self.assertIsNotNone(log_update)
+        self.assertIn("総務部", log_update.description)
+
+        # 削除
+        new_dep.delete()
+        log_delete = AuditLog.objects.filter(action='ADMIN_OP', description__contains="課 が削除されました").first()
+        self.assertIsNotNone(log_delete)
+
+    def test_presence_history_search_api(self):
+        """状態変更履歴の検索APIが正しい結果を返すことを確認"""
+        # 履歴データの仕込み
+        PresenceHistory.objects.create(
+            employee=self.employee,
+            status=self.status_present,
+            destination="自社",
+            start_datetime=timezone.now() - timedelta(days=2)
+        )
+        
+        PresenceHistory.objects.create(
+            employee=self.employee,
+            status=self.status_out,
+            destination="客先A",
+            start_datetime=timezone.now() - timedelta(days=1)
+        )
+
+        url = reverse('presence:presence-history')
+
+        # 1. 絞り込みなしで全件取得
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 2)
+
+        # 2. 社員(ID)で絞り込み
+        response = self.client.get(url, {'employee': self.employee.id})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 2)
+
+        # 3. 社員番号で絞り込み
+        response = self.client.get(url, {'employee': 'E9999'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 2)
+
+        # 4. 状態(ID)で絞り込み
+        response = self.client.get(url, {'status': self.status_out.id})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['destination'], '客先A')
+
+        # 5. 状態名で絞り込み
+        response = self.client.get(url, {'status': 'PRESENT'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['destination'], '自社')
+
+        # 6. 期間(start_date / end_date)で絞り込み
+        tomorrow_str = (timezone.localdate() + timedelta(days=1)).strftime('%Y-%m-%d')
+        yesterday_str = (timezone.localdate() - timedelta(days=1)).strftime('%Y-%m-%d')
+
+        response = self.client.get(url, {'start_date': yesterday_str, 'end_date': tomorrow_str})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 2)
+
+        # 7. 不正な日付形式
+        response = self.client.get(url, {'start_date': 'invalid-date'})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['error_code'], 'E0001')
