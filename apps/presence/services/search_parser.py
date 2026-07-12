@@ -1,12 +1,14 @@
 import re
 from dataclasses import dataclass, field
 from typing import List, Dict
+from functools import lru_cache
 from apps.employees.models import StatusMaster
 
 # ノイズワード定義 (敬称、日付関連など)
 NOISE_WORDS = {"本日", "今日", "予定", "の予定"}
 HONORIFICS = ["さん", "くん", "様"]
 
+@lru_cache(maxsize=1)
 def get_dynamic_status_map() -> Dict[str, str]:
     """
     StatusMaster.StatusCode から動的にステータスマップを生成します。

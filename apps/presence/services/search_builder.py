@@ -2,6 +2,19 @@ from django.db.models import Q
 from typing import List
 from apps.presence.services.search_parser import SearchQuery, get_dynamic_status_map
 
+# 検索対象となるモデルのフィールド定義（部分一致）
+# 今後、検索対象フィールドを追加する場合はこのリストに追加するだけで機能します
+SEARCH_FIELDS = [
+    'name__icontains',
+    'employee_no__icontains',
+    'presence__destination__icontains',
+    'presence__status__name__icontains',
+    'department__name__icontains',
+    'group__name__icontains',
+    'work_location__company_name__icontains',
+    'work_location__office_name__icontains',
+]
+
 class SearchBuilder:
     """
     SearchQuery DTOからDjango ORM用の検索条件 (Qオブジェクトのリスト) を構築するビルダー。
@@ -14,19 +27,10 @@ class SearchBuilder:
 
         for keyword in query.keywords:
             part_q = Q()
-            # 1. 基本項目（氏名、社員番号、行先、ステータス英語名）の部分一致
-            part_q |= Q(name__icontains=keyword)
-            part_q |= Q(employee_no__icontains=keyword)
-            part_q |= Q(presence__destination__icontains=keyword)
-            part_q |= Q(presence__status__name__icontains=keyword)
             
-            # 2. 組織階層（部署名、グループ名）の部分一致
-            part_q |= Q(department__name__icontains=keyword)
-            part_q |= Q(group__name__icontains=keyword)
-
-            # 3. 勤務場所（会社名、事業所名）の部分一致（推奨①の対応）
-            part_q |= Q(work_location__company_name__icontains=keyword)
-            part_q |= Q(work_location__office_name__icontains=keyword)
+            # 定義された検索対象フィールドに対して動的に Q オブジェクトを組み立て
+            for field_name in SEARCH_FIELDS:
+                part_q |= Q(**{field_name: keyword})
 
             # 4. 日本語状態名から状態コードへのマッピング一致
             for jp_status, en_status in status_map.items():
