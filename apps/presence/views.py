@@ -66,12 +66,7 @@ class PresenceListView(ListAPIView):
 
     def get_queryset(self):
         # N+1問題を防ぐため select_related / prefetch_related を使用
-        # 部署(department)やグループ(group)が論理削除されている社員は一般画面では除外する
-        queryset = Employee.objects.filter(
-            deleted_at__isnull=True,
-            department__deleted_at__isnull=True,
-            group__deleted_at__isnull=True
-        ).select_related(
+        queryset = Employee.objects.filter(deleted_at__isnull=True).select_related(
             'department', 'group', 'work_location', 'presence', 'presence__status'
         )
         
@@ -112,6 +107,10 @@ class MyPresenceUpdateView(APIView):
             "employee_no": employee.employee_no,
             "name": employee.name,
             "email": employee.email,
+            "department": employee.department_id,
+            "department_name": employee.department.name if employee.department else None,
+            "group": employee.group_id,
+            "group_name": employee.group.name if employee.group else None,
             "is_staff": request.user.is_staff or request.user.is_superuser,
             "presence": presence_data
         }
@@ -215,12 +214,7 @@ class SearchAPIView(ListAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        # 部署(department)やグループ(group)が論理削除されている社員は一般画面では除外する
-        queryset = Employee.objects.filter(
-            deleted_at__isnull=True,
-            department__deleted_at__isnull=True,
-            group__deleted_at__isnull=True
-        ).select_related(
+        queryset = Employee.objects.filter(deleted_at__isnull=True).select_related(
             'department', 'group', 'work_location', 'presence', 'presence__status'
         )
 

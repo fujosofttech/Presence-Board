@@ -33,7 +33,8 @@ class DepartmentViewSet(BaseModelViewSet):
     serializer_class = DepartmentSerializer
 
     def get_permissions(self):
-        # 一般画面の課絞り込みで GET /departments/ を呼ぶため、listアクションのみ一般ユーザーも許可する
+        # 一般画面の課絞り込みで GET /departments/ を呼ぶため、listアクションのみ一般ユーザーも許可する。
+        # 将来的に新しいアクションが追加された場合でも安全側に倒れるよう、デフォルトはすべて IsAdminUser とする。
         if self.action == 'list':
             return [IsAuthenticated()]
         return [IsAdminUser()]

@@ -12,8 +12,8 @@ class PresenceSerializer(serializers.ModelSerializer):
         fields = ['status', 'destination', 'start_datetime', 'end_datetime', 'updated_at']
 
 class PresenceListSerializer(serializers.ModelSerializer):
-    department_name = serializers.CharField(source='department.name', read_only=True)
-    group_name = serializers.CharField(source='group.name', read_only=True)
+    department_name = serializers.SerializerMethodField()
+    group_name = serializers.SerializerMethodField()
     presence = serializers.SerializerMethodField()
 
     class Meta:
@@ -32,6 +32,20 @@ class PresenceListSerializer(serializers.ModelSerializer):
             'display_order',
             'presence',
         ]
+
+    def get_department_name(self, obj):
+        if obj.department:
+            if obj.department.deleted_at:
+                return None
+            return obj.department.name
+        return None
+
+    def get_group_name(self, obj):
+        if obj.group:
+            if obj.group.deleted_at:
+                return None
+            return obj.group.name
+        return None
 
     def get_presence(self, obj):
         if hasattr(obj, 'presence'):
