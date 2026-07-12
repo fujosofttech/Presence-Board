@@ -1,9 +1,10 @@
 import json
 import queue
 from django.db import transaction
-from django.db.models import Q
 from django.http import StreamingHttpResponse
 from django.utils import timezone
+from apps.presence.services.search_parser import SearchParser
+from apps.presence.services.search_builder import SearchBuilder
 from rest_framework import status
 from rest_framework.generics import ListAPIView
 from rest_framework.permissions import IsAuthenticated
@@ -209,6 +210,7 @@ class MyPresenceUpdateView(APIView):
 class SearchAPIView(ListAPIView):
     """
     社員および在籍状態の検索API。
+    AIエージェントや自然言語クエリに対応する高度な検索機能を提供します。
     """
     serializer_class = PresenceListSerializer
     permission_classes = [IsAuthenticated]
@@ -226,12 +228,10 @@ class SearchAPIView(ListAPIView):
         group_id = self.request.query_params.get('group')
 
         if q:
-            queryset = queryset.filter(
-                Q(name__icontains=q) |
-                Q(employee_no__icontains=q) |
-                Q(presence__destination__icontains=q) |
-                Q(presence__status__name__icontains=q)
-            )
+            query_dto = SearchParser.parse_query(q)
+            conditions = SearchBuilder.build_conditions(query_dto)
+            if conditions:
+                queryset = queryset.filter(*conditions)
 
         if name:
             queryset = queryset.filter(name__icontains=name)

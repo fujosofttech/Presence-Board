@@ -2,7 +2,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 from django.contrib.auth.models import User
-from apps.employees.models import Department, Group, StatusMaster, Employee
+from apps.employees.models import Department, Group, StatusMaster, Employee, WorkLocation
 from apps.presence.models import Presence, PresenceHistory, FavoriteDestination, ScheduledStatus
 from apps.presence.events import event_publisher, MemoryEventPublisher
 from django.utils import timezone
@@ -178,6 +178,12 @@ class PresenceSearchAPITestCase(APITestCase):
         
         self.status_present = StatusMaster.objects.create(name='PRESENT', display_order=1)
         self.status_out = StatusMaster.objects.create(name='OUT', display_order=2)
+        self.status_remote = StatusMaster.objects.create(name='REMOTE', display_order=3)
+
+        # 勤務場所の作成
+        self.work_location1 = WorkLocation.objects.create(
+            company_name="顧客A", office_name="本社", address="東京都", display_order=1
+        )
 
         # テスト社員の作成
         self.emp1 = Employee.objects.create(
@@ -186,7 +192,11 @@ class PresenceSearchAPITestCase(APITestCase):
         )
         self.emp2 = Employee.objects.create(
             employee_no='E0002', name='佐藤花子', email='sato@example.com',
-            department=self.dept_sales, group=self.group_sales1, display_order=2
+            department=self.dept_sales, group=self.group_sales1, work_location=self.work_location1, display_order=2
+        )
+        self.emp3 = Employee.objects.create(
+            employee_no='E0003', name='鈴木一郎', email='suzuki@example.com',
+            department=self.dept_dev, group=self.group_dev1, display_order=3
         )
 
         # Presence の設定
@@ -195,6 +205,9 @@ class PresenceSearchAPITestCase(APITestCase):
         )
         Presence.objects.create(
             employee=self.emp2, status=self.status_out, destination='〇〇商事', updated_by=self.user
+        )
+        Presence.objects.create(
+            employee=self.emp3, status=self.status_remote, destination='', updated_by=self.user
         )
 
         self.search_url = reverse('presence:presence-search')
@@ -209,7 +222,7 @@ class PresenceSearchAPITestCase(APITestCase):
         """パラメータなしの場合は全社員が返ること"""
         response = self.client.get(self.search_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 2)
+        self.assertEqual(len(response.data), 3)
 
     def test_search_q_by_name(self):
         """qによる氏名部分一致検索が正しく機能すること"""
@@ -239,6 +252,72 @@ class PresenceSearchAPITestCase(APITestCase):
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]['name'], '山田太郎')
 
+    def test_search_q_natural_language(self):
+        """自然言語を意識したq検索（敬称除外、部署名検索、日本語状態名検索、複数語AND検索）が動作すること"""
+        # 「田中さん」→「田中」 (敬称除外) -> テストデータにはいないが、山田さんでテスト
+        response = self.client.get(self.search_url, {'q': '山田さん'})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '山田太郎')
+
+        # 「本日 外出」 (ノイズ除外＋ステータスマップ)
+        response = self.client.get(self.search_url, {'q': '本日 外出'})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '佐藤花子')
+
+        # 「今日 在宅」 (ノイズ除外＋ステータスマップ)
+        response = self.client.get(self.search_url, {'q': '今日 在宅'})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '鈴木一郎')
+
+        # 「営業部 外出」 (複数語AND)
+        response = self.client.get(self.search_url, {'q': '営業部 外出'})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '佐藤花子')
+
+        # 「山田 開発部 在籍」 (3語AND)
+        response = self.client.get(self.search_url, {'q': '山田 開発部 在籍'})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '山田太郎')
+
+        # 「PRESENT」 (英語ステータス直接検索)
+        response = self.client.get(self.search_url, {'q': 'PRESENT'})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '山田太郎')
+
+        # 「present」 (英語ステータス直接検索・小文字)
+        response = self.client.get(self.search_url, {'q': 'present'})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '山田太郎')
+
+        # 「在席」 (ステータスマップ「在席」)
+        response = self.client.get(self.search_url, {'q': '在席'})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '山田太郎')
+
+        # 「在宅」 (ステータスマップ「在宅」)
+        response = self.client.get(self.search_url, {'q': '在宅'})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '鈴木一郎')
+
+        # 「リモート」 (ステータスマップ「リモート」)
+        response = self.client.get(self.search_url, {'q': 'リモート'})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '鈴木一郎')
+
+        # 「顧客A」 (勤務地会社名検索)
+        response = self.client.get(self.search_url, {'q': '顧客A'})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '佐藤花子')
+
+        # 「本社」 (勤務地事業所名検索)
+        response = self.client.get(self.search_url, {'q': '本社'})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], '佐藤花子')
+
+        # マッチしない組み合わせ
+        response = self.client.get(self.search_url, {'q': '山田 外出'})
+        self.assertEqual(len(response.data), 0)
+
     def test_search_by_individual_params(self):
         """個別パラメータでの絞り込みが正しく機能すること"""
         # name
@@ -255,8 +334,9 @@ class PresenceSearchAPITestCase(APITestCase):
 
         # department
         response = self.client.get(self.search_url, {'department': self.dept_dev.id})
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['name'], '山田太郎')
+        self.assertEqual(len(response.data), 2)
+        self.assertTrue(any(emp['name'] == '山田太郎' for emp in response.data))
+        self.assertTrue(any(emp['name'] == '鈴木一郎' for emp in response.data))
 
         # group
         response = self.client.get(self.search_url, {'group': self.group_sales1.id})
