@@ -12,9 +12,6 @@ class Command(BaseCommand):
         today = timezone.localdate()
         now = timezone.now()
         
-        # システムユーザー（またはバッチ実行ユーザー）を取得
-        # ここでは更新者として扱うためのダミーユーザーを取得するか、Noneを許容するか。
-        # 既存の設計では updated_by は User のため、最初のスーパーユーザーを使うか、システムユーザーを作る。
         system_user = User.objects.filter(is_superuser=True).first()
 
         scheduled_list = ScheduledStatus.objects.filter(
@@ -22,50 +19,62 @@ class Command(BaseCommand):
             deleted_at__isnull=True
         ).select_related('employee', 'status')
 
-        count = 0
-        with transaction.atomic():
-            for scheduled in scheduled_list:
-                employee = scheduled.employee
-                status_master = scheduled.status
-                
-                # 既に今日の Presence が手動更新されている場合は上書きしない運用にするか、
-                # 単純に朝一のバッチとして上書きするか。
-                # 要件に「当日になったらScheduledStatus -> Presenceへ反映」とあるため、上書きする。
-                presence, created = Presence.objects.get_or_create(
-                    employee=employee,
-                    defaults={
-                        'status': status_master,
-                        'destination': scheduled.destination,
-                        'start_datetime': now,
-                        'end_datetime': None, # scheduled には時間があるが、現在状態としては一旦 end_datetime に帰社予定を入れる場合がある
-                        'updated_by': system_user
-                    }
-                )
+        applied_count = 0
+        skipped_count = 0
+        error_count = 0
 
-                if not created:
-                    presence.status = status_master
-                    presence.destination = scheduled.destination
-                    presence.start_datetime = now
-                    # end_time がある場合はそれを当日の datetime に変換して end_datetime に入れる
+        for scheduled in scheduled_list:
+            try:
+                with transaction.atomic():
+                    employee = scheduled.employee
+                    status_master = scheduled.status
+                    
+                    target_end_datetime = None
                     if scheduled.end_time:
-                        presence.end_datetime = timezone.make_aware(
+                        target_end_datetime = timezone.make_aware(
                             timezone.datetime.combine(today, scheduled.end_time)
                         )
+
+                    presence = Presence.objects.filter(employee=employee).first()
+
+                    if presence:
+                        # 冪等性の担保: すでに適用済み、または手動で同じ状態になっている場合はスキップ
+                        if (presence.status == status_master and 
+                            presence.destination == scheduled.destination and 
+                            presence.end_datetime == target_end_datetime):
+                            skipped_count += 1
+                            continue
+                        
+                        presence.status = status_master
+                        presence.destination = scheduled.destination
+                        presence.start_datetime = now
+                        presence.end_datetime = target_end_datetime
+                        presence.updated_by = system_user
+                        presence.save()
                     else:
-                        presence.end_datetime = None
-                    presence.updated_by = system_user
-                    presence.save()
+                        presence = Presence.objects.create(
+                            employee=employee,
+                            status=status_master,
+                            destination=scheduled.destination,
+                            start_datetime=now,
+                            end_datetime=target_end_datetime,
+                            updated_by=system_user
+                        )
 
-                # PresenceHistory の作成
-                PresenceHistory.objects.create(
-                    employee=employee,
-                    status=status_master,
-                    destination=scheduled.destination,
-                    start_datetime=now,
-                    end_datetime=presence.end_datetime,
-                    updated_by=system_user
-                )
+                    # PresenceHistory の作成
+                    PresenceHistory.objects.create(
+                        employee=employee,
+                        status=status_master,
+                        destination=scheduled.destination,
+                        start_datetime=now,
+                        end_datetime=target_end_datetime,
+                        updated_by=system_user
+                    )
 
-                count += 1
+                    applied_count += 1
+            except Exception as e:
+                self.stderr.write(self.style.ERROR(f"Employee {scheduled.employee.employee_no} の適用に失敗しました: {str(e)}"))
+                error_count += 1
 
-        self.stdout.write(self.style.SUCCESS(f'{count} 件の予定を Presence へ適用しました。'))
+        self.stdout.write(self.style.SUCCESS(f'処理完了: {applied_count} 件適用, {skipped_count} 件スキップ, {error_count} 件エラー'))
+

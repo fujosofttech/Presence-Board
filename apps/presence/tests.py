@@ -522,3 +522,65 @@ class ScheduledStatusAPITestCase(APITestCase):
         self.assertEqual(res4.status_code, status.HTTP_201_CREATED)
         self.assertEqual(res4.data['destination'], "再登録行先")
 
+
+from django.core.management import call_command
+from io import StringIO
+
+class ApplyScheduledStatusTestCase(APITestCase):
+    def setUp(self):
+        # ユーザーと認証設定
+        self.user = User.objects.create_superuser(username='admin', email='admin@example.com', password='password123')
+        
+        # テストマスタデータの作成
+        self.department = Department.objects.create(name='開発部', display_order=1)
+        self.group = Group.objects.create(department=self.department, name='開発1G', display_order=1)
+        
+        self.status_present = StatusMaster.objects.create(name='PRESENT', display_order=1)
+        self.status_out = StatusMaster.objects.create(name='OUT', display_order=2)
+
+        self.employee = Employee.objects.create(
+            employee_no='E0001',
+            name='テスト太郎',
+            email='test@example.com',
+            department=self.department,
+            group=self.group,
+            display_order=1
+        )
+
+    def test_apply_scheduled_status_idempotency(self):
+        """バッチ実行による適用と冪等性のテスト"""
+        today = timezone.localdate()
+        
+        # 当日の予定を作成
+        ScheduledStatus.objects.create(
+            employee=self.employee,
+            target_date=today,
+            status=self.status_out,
+            destination="テスト先",
+            start_time="10:00",
+            end_time="18:00"
+        )
+        
+        out = StringIO()
+        
+        # 1回目の実行
+        call_command('apply_scheduled_status', stdout=out)
+        self.assertIn("1 件適用", out.getvalue())
+        
+        # PresenceとHistoryが作成されていることを確認
+        presence = Presence.objects.filter(employee=self.employee).first()
+        self.assertIsNotNone(presence)
+        self.assertEqual(presence.status.name, "OUT")
+        self.assertEqual(presence.destination, "テスト先")
+        
+        history_count = PresenceHistory.objects.filter(employee=self.employee).count()
+        self.assertEqual(history_count, 1)
+        
+        # 2回目の実行 (冪等性)
+        out = StringIO()
+        call_command('apply_scheduled_status', stdout=out)
+        self.assertIn("1 件スキップ", out.getvalue())
+        
+        # Historyが増えていないことを確認
+        new_history_count = PresenceHistory.objects.filter(employee=self.employee).count()
+        self.assertEqual(new_history_count, 1)
