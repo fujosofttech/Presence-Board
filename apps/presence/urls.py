@@ -6,7 +6,9 @@ from .views import (
     SearchAPIView,
     FavoriteDestinationListView,
     FavoriteDestinationDetailView,
-    RecentDestinationListView
+    RecentDestinationListView,
+    ScheduledStatusListCreateView,
+    ScheduledStatusDetailView
 )
 
 app_name = 'presence'
@@ -19,4 +21,6 @@ urlpatterns = [
     path('destinations/favorites/', FavoriteDestinationListView.as_view(), name='favorite-list'),
     path('destinations/favorites/<int:pk>/', FavoriteDestinationDetailView.as_view(), name='favorite-detail'),
     path('destinations/recent/', RecentDestinationListView.as_view(), name='recent-list'),
+    path('scheduled-status/', ScheduledStatusListCreateView.as_view(), name='scheduled-status-list'),
+    path('scheduled-status/<int:pk>/', ScheduledStatusDetailView.as_view(), name='scheduled-status-detail'),
 ]

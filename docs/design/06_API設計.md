@@ -58,10 +58,10 @@
 | POST | `/api/destinations/favorites/` | お気に入り行先の追加 |
 | DELETE | `/api/destinations/favorites/{id}/` | お気に入り行先の削除 |
 | GET | `/api/destinations/recent/` | 直近30日の使用履歴からの自動候補取得（履歴テーブルから動的に集計） |
-| GET | `/api/scheduled-status/` | 自分の事前登録一覧取得 |
-| POST | `/api/scheduled-status/` | 事前登録の新規作成 |
-| PATCH | `/api/scheduled-status/{id}/` | 事前登録の変更（対象日より前のみ） |
-| DELETE | `/api/scheduled-status/{id}/` | 事前登録の取消（対象日より前のみ） |
+| GET | `/api/v1/scheduled-status/` | 自分の事前登録一覧取得（今日以降30日） |
+| POST | `/api/v1/scheduled-status/` | 事前登録の新規作成 |
+| PATCH | `/api/v1/scheduled-status/{id}/` | 事前登録の変更（対象日より前のみ） |
+| DELETE | `/api/v1/scheduled-status/{id}/` | 事前登録の論理削除（対象日より前のみ） |
 | GET | `/api/events/stream/` | SSEストリーム（一覧画面のリアルタイム更新） |
 
 ---

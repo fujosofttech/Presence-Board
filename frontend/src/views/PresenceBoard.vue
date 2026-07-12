@@ -54,6 +54,17 @@
               >
                 状況を更新
               </v-btn>
+              
+              <!-- 予定管理ボタン -->
+              <v-btn
+                color="blue-darken-2"
+                prepend-icon="mdi-calendar-clock"
+                class="ml-2 font-weight-bold text-white"
+                elevation="1"
+                @click="openScheduleManager"
+              >
+                予定管理
+              </v-btn>
             </div>
           </v-card-text>
         </v-card>
@@ -317,6 +328,140 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- 予定管理ダイアログ -->
+    <v-dialog v-model="scheduleManagerDialog" max-width="800px" scrollable>
+      <v-card class="rounded-lg">
+        <v-card-title class="bg-blue-darken-3 text-white py-4 d-flex align-center">
+          <v-icon icon="mdi-calendar-clock" class="mr-2" />
+          <span class="font-weight-bold text-h6">予定管理</span>
+          <v-spacer></v-spacer>
+          <v-btn icon="mdi-close" variant="text" color="white" @click="scheduleManagerDialog = false"></v-btn>
+        </v-card-title>
+        <v-card-text class="py-4" style="height: 60vh;">
+          <div v-if="!scheduleEditing">
+            <div class="d-flex justify-space-between align-center mb-4">
+              <span class="text-subtitle-1 font-weight-bold text-grey-darken-3">今後30日間の予定</span>
+              <v-btn color="blue-darken-2" prepend-icon="mdi-plus" @click="openScheduleForm()">新規登録</v-btn>
+            </div>
+            
+            <v-table>
+              <thead>
+                <tr>
+                  <th>対象日</th>
+                  <th>状態</th>
+                  <th>行先</th>
+                  <th>時間</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in scheduledStatuses" :key="item.id">
+                  <td>{{ item.target_date }}</td>
+                  <td>
+                    <v-chip :color="getStatusColor(item.status)" size="small" variant="flat" class="text-white">
+                      {{ getStatusLabel(item.status) }}
+                    </v-chip>
+                  </td>
+                  <td>{{ item.destination || '－' }}</td>
+                  <td>
+                    {{ formatTimeOnly(item.start_time) }} 〜 {{ formatTimeOnly(item.end_time) }}
+                  </td>
+                  <td>
+                    <v-btn icon="mdi-pencil" variant="text" size="small" color="blue" @click="openScheduleForm(item)"></v-btn>
+                    <v-btn icon="mdi-delete" variant="text" size="small" color="red" @click="deleteSchedule(item.id)"></v-btn>
+                  </td>
+                </tr>
+                <tr v-if="scheduledStatuses.length === 0">
+                  <td colspan="5" class="text-center text-grey">登録されている予定はありません</td>
+                </tr>
+              </tbody>
+            </v-table>
+          </div>
+
+          <div v-else>
+            <div class="d-flex align-center mb-4">
+              <v-btn icon="mdi-arrow-left" variant="text" @click="scheduleEditing = false"></v-btn>
+              <span class="text-subtitle-1 font-weight-bold ml-2">{{ scheduleForm.id ? '予定の編集' : '予定の新規登録' }}</span>
+            </div>
+
+            <v-row dense>
+              <v-col cols="12" sm="6">
+                <v-text-field
+                  v-model="scheduleForm.target_date"
+                  label="対象日 (必須)"
+                  type="date"
+                  variant="outlined"
+                  density="comfortable"
+                  :rules="[v => !!v || '対象日を入力してください']"
+                ></v-text-field>
+              </v-col>
+              <v-col cols="12">
+                <label class="text-subtitle-2 font-weight-bold text-grey-darken-3 d-block mb-2">ステータス</label>
+                <v-row dense>
+                  <v-col v-for="(def, key) in STATUS_DEFINITIONS" :key="key" cols="4" sm="3">
+                    <v-btn
+                      block
+                      size="small"
+                      :color="scheduleForm.status === key ? def.color : 'grey-lighten-4'"
+                      :variant="scheduleForm.status === key ? 'flat' : 'outlined'"
+                      :class="{'text-white': scheduleForm.status === key, 'text-grey-darken-2': scheduleForm.status !== key}"
+                      class="font-weight-bold py-1 mb-2"
+                      @click="scheduleForm.status = key"
+                    >
+                      {{ def.label }}
+                    </v-btn>
+                  </v-col>
+                </v-row>
+              </v-col>
+              <v-col cols="12">
+                <v-text-field
+                  v-model="scheduleForm.destination"
+                  label="行先"
+                  variant="outlined"
+                  density="comfortable"
+                ></v-text-field>
+              </v-col>
+              <v-col cols="6">
+                <v-text-field
+                  v-model="scheduleForm.start_time"
+                  label="開始時刻"
+                  type="time"
+                  variant="outlined"
+                  density="comfortable"
+                ></v-text-field>
+              </v-col>
+              <v-col cols="6">
+                <v-text-field
+                  v-model="scheduleForm.end_time"
+                  label="終了時刻"
+                  type="time"
+                  variant="outlined"
+                  density="comfortable"
+                ></v-text-field>
+              </v-col>
+              <v-col cols="12">
+                <v-text-field
+                  v-model="scheduleForm.memo"
+                  label="メモ"
+                  variant="outlined"
+                  density="comfortable"
+                ></v-text-field>
+              </v-col>
+            </v-row>
+
+            <v-alert v-if="scheduleErrorMessage" type="error" variant="tonal" class="mt-2" density="compact">
+              {{ scheduleErrorMessage }}
+            </v-alert>
+
+            <div class="d-flex justify-end mt-4">
+              <v-btn color="grey" variant="text" class="mr-2" @click="scheduleEditing = false">キャンセル</v-btn>
+              <v-btn color="blue-darken-2" :loading="scheduleSubmitting" @click="submitSchedule">保存する</v-btn>
+            </div>
+          </div>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
   </v-container>
 </template>
 
@@ -381,6 +526,16 @@ interface RecentDestination {
   destination: string
 }
 
+interface ScheduledStatus {
+  id: number
+  target_date: string
+  status: string
+  destination: string
+  start_time: string | null
+  end_time: string | null
+  memo: string
+}
+
 // ストア
 const authStore = useAuthStore()
 
@@ -403,6 +558,14 @@ const form = ref({
 
 const favorites = ref<FavoriteDestination[]>([])
 const recents = ref<RecentDestination[]>([])
+const scheduledStatuses = ref<ScheduledStatus[]>([])
+
+// 予定管理関連
+const scheduleManagerDialog = ref(false)
+const scheduleEditing = ref(false)
+const scheduleSubmitting = ref(false)
+const scheduleErrorMessage = ref('')
+const scheduleForm = ref<Partial<ScheduledStatus>>({})
 
 // 選択中のステータスの定義ルール
 const statusRule = computed<StatusInfo>(() => {
@@ -630,6 +793,102 @@ const submitUpdate = async () => {
     }
   } finally {
     submitting.value = false
+  }
+}
+
+// 予定管理機能
+const loadScheduledStatuses = async () => {
+  try {
+    const res = await api.get('/scheduled-status/')
+    scheduledStatuses.value = res.data
+  } catch (error) {
+    console.error('Failed to load scheduled statuses:', error)
+  }
+}
+
+const openScheduleManager = async () => {
+  await loadScheduledStatuses()
+  scheduleEditing.value = false
+  scheduleManagerDialog.value = true
+}
+
+const openScheduleForm = (item: ScheduledStatus | null = null) => {
+  scheduleErrorMessage.value = ''
+  if (item) {
+    scheduleForm.value = { ...item }
+    // TimeFieldから秒を除去 (HH:mm)
+    if (scheduleForm.value.start_time && scheduleForm.value.start_time.length > 5) {
+      scheduleForm.value.start_time = scheduleForm.value.start_time.substring(0, 5)
+    }
+    if (scheduleForm.value.end_time && scheduleForm.value.end_time.length > 5) {
+      scheduleForm.value.end_time = scheduleForm.value.end_time.substring(0, 5)
+    }
+  } else {
+    // 新規作成時は明日の日付を初期値とする
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    const yyyy = tomorrow.getFullYear()
+    const mm = String(tomorrow.getMonth() + 1).padStart(2, '0')
+    const dd = String(tomorrow.getDate()).padStart(2, '0')
+    
+    scheduleForm.value = {
+      id: undefined,
+      target_date: `${yyyy}-${mm}-${dd}`,
+      status: 'OUT',
+      destination: '',
+      start_time: '',
+      end_time: '',
+      memo: ''
+    }
+  }
+  scheduleEditing.value = true
+}
+
+const submitSchedule = async () => {
+  scheduleErrorMessage.value = ''
+  if (!scheduleForm.value.target_date) {
+    scheduleErrorMessage.value = '対象日を入力してください'
+    return
+  }
+
+  scheduleSubmitting.value = true
+  try {
+    // 空文字の時刻はnullに変換
+    const payload = { ...scheduleForm.value }
+    if (!payload.start_time) payload.start_time = null
+    if (!payload.end_time) payload.end_time = null
+
+    if (payload.id) {
+      await api.patch(`/scheduled-status/${payload.id}/`, payload)
+    } else {
+      await api.post('/scheduled-status/', payload)
+    }
+    await loadScheduledStatuses()
+    scheduleEditing.value = false
+  } catch (error: any) {
+    console.error('Failed to submit schedule:', error)
+    if (error.response?.data?.message) {
+      scheduleErrorMessage.value = error.response.data.message
+      if (error.response.data.details) {
+         // Object.values を使って詳細エラーを結合
+         scheduleErrorMessage.value += ' ' + Object.values(error.response.data.details).join(' ')
+      }
+    } else {
+      scheduleErrorMessage.value = '保存に失敗しました。'
+    }
+  } finally {
+    scheduleSubmitting.value = false
+  }
+}
+
+const deleteSchedule = async (id: number) => {
+  if (!confirm('この予定を削除しますか？')) return
+  try {
+    await api.delete(`/scheduled-status/${id}/`)
+    await loadScheduledStatuses()
+  } catch (error: any) {
+    console.error('Failed to delete schedule:', error)
+    alert(error.response?.data?.message || '削除に失敗しました。')
   }
 }
 

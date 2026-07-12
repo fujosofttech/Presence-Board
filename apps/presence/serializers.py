@@ -1,6 +1,7 @@
 from rest_framework import serializers
+from django.utils import timezone
 from apps.employees.models import Employee, StatusMaster
-from apps.presence.models import Presence, FavoriteDestination
+from apps.presence.models import Presence, FavoriteDestination, ScheduledStatus
 
 class PresenceSerializer(serializers.ModelSerializer):
     status = serializers.CharField(source='status.name')
@@ -98,3 +99,53 @@ class FavoriteDestinationCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = FavoriteDestination
         fields = ['destination', 'display_order']
+
+class ScheduledStatusSerializer(serializers.ModelSerializer):
+    status = serializers.CharField(max_length=50)
+
+    class Meta:
+        model = ScheduledStatus
+        fields = ['id', 'target_date', 'status', 'destination', 'start_time', 'end_time', 'memo']
+
+    def validate_status(self, value):
+        upper_val = value.upper()
+        if not StatusMaster.objects.filter(name=upper_val).exists():
+            raise serializers.ValidationError(f"Invalid status: {value}")
+        return upper_val
+
+    def validate(self, data):
+        target_date = data.get('target_date')
+        if target_date and target_date < timezone.now().date():
+            raise serializers.ValidationError({"target_date": "今日以前の日付は登録できません。"})
+
+        status_name = data.get('status')
+        destination = data.get('destination', '')
+        end_time = data.get('end_time')
+
+        errors = {}
+
+        if status_name in ['PRESENT', 'LEAVE', 'REMOTE', 'HOLIDAY']:
+            if destination:
+                errors['destination'] = f"Destination must be empty for {status_name}."
+            if end_time:
+                errors['end_time'] = f"End time must be empty for {status_name}."
+        
+        elif status_name == 'OUT':
+            if not destination:
+                errors['destination'] = "Destination is required for OUT."
+            if not end_time:
+                errors['end_time'] = "End time is required for OUT."
+        
+        elif status_name in ['CUSTOMER', 'MEETING']:
+            if not destination:
+                errors['destination'] = f"Destination is required for {status_name}."
+        
+        elif status_name == 'DIRECT_HOME':
+            if not destination:
+                errors['destination'] = "Destination is required for DIRECT_HOME."
+            data['end_time'] = None
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        return data

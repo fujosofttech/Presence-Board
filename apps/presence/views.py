@@ -13,14 +13,15 @@ from rest_framework.views import APIView
 from datetime import timedelta
 from django.db.models import Max
 from apps.employees.models import Employee, StatusMaster
-from apps.presence.models import Presence, PresenceHistory, FavoriteDestination
+from apps.presence.models import Presence, PresenceHistory, FavoriteDestination, ScheduledStatus
 from .events import event_publisher, MemoryEventPublisher
 from .serializers import (
     PresenceListSerializer, 
     PresenceSerializer, 
     PresenceUpdateSerializer,
     FavoriteDestinationSerializer,
-    FavoriteDestinationCreateSerializer
+    FavoriteDestinationCreateSerializer,
+    ScheduledStatusSerializer
 )
 
 
@@ -291,3 +292,150 @@ class RecentDestinationListView(APIView):
         
         destinations = [{"destination": item["destination"]} for item in recent_histories]
         return Response(destinations, status=status.HTTP_200_OK)
+
+class ScheduledStatusListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        try:
+            employee = Employee.objects.get(email=request.user.email, deleted_at__isnull=True)
+        except Employee.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        today = timezone.now().date()
+        thirty_days_later = today + timedelta(days=30)
+
+        scheduled = ScheduledStatus.objects.filter(
+            employee=employee,
+            deleted_at__isnull=True,
+            target_date__gte=today,
+            target_date__lte=thirty_days_later
+        ).order_by('target_date', 'start_time')
+
+        serializer = ScheduledStatusSerializer(scheduled, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request, *args, **kwargs):
+        try:
+            employee = Employee.objects.get(email=request.user.email, deleted_at__isnull=True)
+        except Employee.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        serializer = ScheduledStatusSerializer(data=request.data)
+        if serializer.is_valid():
+            try:
+                status_master = StatusMaster.objects.get(name=serializer.validated_data['status'])
+            except StatusMaster.DoesNotExist:
+                return Response({"error_code": "E0003", "message": "Invalid status."}, status=status.HTTP_400_BAD_REQUEST)
+
+            try:
+                scheduled = ScheduledStatus.objects.create(
+                    employee=employee,
+                    target_date=serializer.validated_data['target_date'],
+                    status=status_master,
+                    destination=serializer.validated_data.get('destination', ''),
+                    start_time=serializer.validated_data.get('start_time'),
+                    end_time=serializer.validated_data.get('end_time'),
+                    memo=serializer.validated_data.get('memo', ''),
+                    created_by=request.user,
+                    updated_by=request.user
+                )
+                return Response(ScheduledStatusSerializer(scheduled).data, status=status.HTTP_201_CREATED)
+            except Exception:
+                return Response(
+                    {"error_code": "E0004", "message": "指定された日付にはすでに予定が登録されています。"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        return Response(
+            {"error_code": "E0001", "message": "バリデーションエラー", "details": serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+class ScheduledStatusDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self, pk, employee):
+        try:
+            return ScheduledStatus.objects.get(id=pk, employee=employee, deleted_at__isnull=True)
+        except ScheduledStatus.DoesNotExist:
+            return None
+
+    def patch(self, request, pk, *args, **kwargs):
+        try:
+            employee = Employee.objects.get(email=request.user.email, deleted_at__isnull=True)
+        except Employee.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        scheduled = self.get_object(pk, employee)
+        if not scheduled:
+            return Response({"error_code": "E0005", "message": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # 対象日より前のみ変更可能
+        if scheduled.target_date <= timezone.now().date():
+            return Response(
+                {"error_code": "E0006", "message": "当日または過去の予定は変更できません。"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # PATCHは一部のフィールドだけ送信される可能性があるので、既存データをマージして検証する方がDRFでは良いが、
+        # ここでは Serializer に instance を渡して partial=True で検証する。
+        serializer = ScheduledStatusSerializer(scheduled, data=request.data, partial=True)
+        if serializer.is_valid():
+            if 'status' in serializer.validated_data:
+                try:
+                    status_master = StatusMaster.objects.get(name=serializer.validated_data['status'])
+                    scheduled.status = status_master
+                except StatusMaster.DoesNotExist:
+                    return Response({"error_code": "E0003", "message": "Invalid status."}, status=status.HTTP_400_BAD_REQUEST)
+            
+            if 'target_date' in serializer.validated_data:
+                scheduled.target_date = serializer.validated_data['target_date']
+            if 'destination' in serializer.validated_data:
+                scheduled.destination = serializer.validated_data['destination']
+            if 'start_time' in serializer.validated_data:
+                scheduled.start_time = serializer.validated_data['start_time']
+            # Noneが明示的に渡される場合もあるため、dictにキーが含まれているかで判定する
+            if 'end_time' in serializer.validated_data:
+                scheduled.end_time = serializer.validated_data['end_time']
+            if 'end_time' in request.data and request.data['end_time'] is None:
+                scheduled.end_time = None
+            if 'memo' in serializer.validated_data:
+                scheduled.memo = serializer.validated_data['memo']
+            
+            scheduled.updated_by = request.user
+            try:
+                scheduled.save()
+                return Response(ScheduledStatusSerializer(scheduled).data, status=status.HTTP_200_OK)
+            except Exception:
+                return Response(
+                    {"error_code": "E0004", "message": "指定された日付にはすでに予定が登録されています。"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        return Response(
+            {"error_code": "E0001", "message": "バリデーションエラー", "details": serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    def delete(self, request, pk, *args, **kwargs):
+        try:
+            employee = Employee.objects.get(email=request.user.email, deleted_at__isnull=True)
+        except Employee.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        scheduled = self.get_object(pk, employee)
+        if not scheduled:
+            return Response({"error_code": "E0005", "message": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if scheduled.target_date <= timezone.now().date():
+            return Response(
+                {"error_code": "E0006", "message": "当日または過去の予定は取消できません。"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        scheduled.deleted_at = timezone.now()
+        scheduled.updated_by = request.user
+        scheduled.save()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
