@@ -1,304 +1,248 @@
-必須① ScheduledStatus と Presence のバリデーションを共通化する
+🚨 必須① 管理者権限のチェック
 
-TASK-006でも指摘しましたが、
+説明には
 
-PresenceUpdateSerializer
-ScheduledStatusSerializer
+管理者向けマスタデータ管理画面
 
-の両方で
+とありますが、
 
-OUTならdestination必須
-DIRECT_HOMEならend_timeをnull
-CUSTOMER
-MEETING
-REMOTE
-
-などの判定を書いているなら、
-
-必ず共通化してください。
+本当に管理者しか使えませんか？
 
 例えば
 
-apps/presence/services/status_validator.py
+/admin
 
-validate_status(...)
+へ一般社員が直接アクセスすると
 
-あるいは
+403 Forbidden
 
-apps/presence/validators.py
+になりますか？
 
-に
+フロントだけ
 
-validate_presence_data(...)
+管理ボタンを非表示
 
-を作ります。
+では不十分です。
 
-今後
+バックエンド側でも
 
-休暇
-出張
-半休
+IsAdminUser
 
-など状態が追加されるたびに
+や
 
-Presence
-ScheduledStatus
+request.user.is_staff
 
-両方直す必要が出ます。
+等で必ず制御してください。
 
-必須② ScheduledStatus を適用する処理が存在しない
+これは必須です。
 
-今回追加されたのは
+🚨 必須② API側も権限制御されているか
 
-予定を登録するAPI
-
-だけです。
-
-しかし
-
-設計を見る限り
-
-当日になったら
-ScheduledStatus
-
-↓
-
-Presenceへ反映
-
-が必要になります。
-
-現状
-
-POST ScheduledStatus
-
-↓
-
-保存される
-
-↓
-
-終わり
-
-になっていませんか？
-
-これでは
-
-予定登録
-
-しただけになります。
-
-実際に予定が適用されません。
+Vueだけ守っても意味がありません。
 
 例えば
 
-Celery Beat
+POST /api/v1/master/employees/
 
-cron
+をcurlで叩いたら登録できませんか？
 
-management command
+管理APIは
 
+Department
 
-どれで適用するのかを設計書へ追記してください。
+Group
 
-これは重要です。
+Employee
 
-推奨① employee取得処理をサービス化
+StatusMaster
 
-おそらく
+WorkLocation
 
-今回も
+全部
 
-Employee.objects.get(
-    email=request.user.email
-)
+permission_classes
 
-を使っています。
+で制御してください。
 
-TASK-006でも言いましたが
-
-get_current_employee()
-
-が増えています。
-
-今後
-
-TASK008
-TASK009
-TASK010
-
-でも使います。
+🚨 必須③ 論理削除の影響確認
 
 例えば
 
-apps/presence/services/current_employee.py
+部署削除
 
-などに
+すると
 
-get_current_employee(request)
+社員100人
 
-を移してください。
+が所属しています。
 
-推奨② ScheduledStatus一覧APIのソート
+その時
 
-GETが
+deleted_at
 
-.objects.filter(...)
+だけ付ける設計でしょうか？
 
-だけなら
+もしそうなら
 
-order_by(target_date)
+一覧取得で
 
-を付けてください。
+deleted_at__isnull=True
 
-予定一覧なので
+になっていますか？
 
-今日
+また
+
+社員一覧では
+
+削除済部署
+
+をどう扱いますか？
+
+ここは確認したいです。
+
+推奨① select_related
+
+社員一覧では
+
+department
+
+group
+
+work_location
+
+を表示すると思います。
+
+N+1問題にならないよう
+
+select_related(...)
+
+してください。
+
+推奨② ページング
+
+社員1000人になると
+
+GET /employees
+
+全部返すのは重いです。
+
+DRFの
+
+PageNumberPagination
+
+を使うことをおすすめします。
+
+推奨③ ソート
+
+一覧は
+
+display_order
+
 ↓
 
-明日
-↓
+name
 
-明後日
+など
 
-の順に返る方が自然です。
+安定した順番にしてください。
 
-推奨③ PATCH時のUniqueConstraintテスト追加
+推奨④ 楽観ロック
 
-テストでは
+管理者A
 
-POST
+管理者B
 
-しか見ていないようです。
+が同時編集すると
 
-例えば
+最後に保存した人が勝ちます。
 
-A
+将来的には
 
-↓
+updated_at
 
-PATCH
+比較で
 
-↓
+409 Conflict
 
-B
+を返す楽観ロックを検討しても良いと思います。
 
+軽微① 共通CRUD
 
-で
+5つのマスタが
 
-既に
+一覧
 
-B
-
-が存在すると
-
-UniqueConstraint違反になります。
-
-PATCHも確認してください。
-
-推奨④ APIの競合テスト
-
-例えば
-
-明日の予定
-
-↓
+追加
 
 編集
 
-↓
-
 削除
 
-↓
+全部同じなら
 
-再登録
+Vue側は
 
-までありますか？
+MasterTable.vue
+MasterDialog.vue
 
-このあたりは運用で必ず使われます。
+など共通コンポーネント化できます。
 
-軽微① タイムゾーン
-
-過去判定で
-
-timezone.localdate()
-
-でしょうか？
-
-もし
-
-date.today()
-
-なら
-
-必ず
-
-timezone.localdate()
-
-へ変更してください。
-
-Djangoではこちらが推奨です。
-
-軽微② statusコード
-
-もし
-
-"PRESENT"
-
-など文字列比較をしているなら
-
-StatusMaster.StatusCode.PRESENT
-
-を使ってください。
-
-今後リネーム耐性が上がります。
-
-軽微③ ビューが肥大化していないか
-
-TASK-007終了時点で
-
-views.py
-
-には
-
-Presence
-Search
-Favorite
-Recent
-ScheduledStatus
-
-が入っています。
-
-おそらく400〜600行近くになっているはずです。
-
-TASK-010くらいになると1000行を超えます。
+軽微② APIエラー
 
 例えば
 
-views/
+Department
 
-    presence.py
+削除時に
 
-    search.py
+社員が所属しています
 
-    favorites.py
+など
 
-    scheduled_status.py
+DB制約エラーがそのまま表示されていませんか？
 
-へ分割しておくと保守性が大きく向上します。
+ユーザー向けメッセージへ変換してください。
+
+軽微③ 監査ログ
+
+管理画面なので
+
+誰が
+
+いつ
+
+何を変更したか
+
+残ると非常に便利です。
+
+例えば
+
+updated_by
+
+だけでも十分です。
+
+軽微④ 一括登録
+
+社員マスタは
+
+CSV取込
+
+Excel取込
+
+が今後欲しくなります。
+
+今回不要ですが、
+
+設計だけ考えておくと後が楽です。
 
 総合評価
 
-ここまでのTASKを見ると、AIエージェントはかなり安定して開発できています。
+このPRは業務機能というより運用機能なので、
 
-今回のTASK-007は完成度としては約90〜95点です。
+レビューの重点は次の3点です。
 
-マージ前に直してほしいものは次の2点です。
+管理者権限がバックエンドでも確実に適用されていること
+論理削除の整合性が保たれていること
+一覧取得の性能（select_related・ページング）が確保されていること
 
-必須
-Presence/ScheduledStatus のバリデーション共通化
-ScheduledStatus がいつ・どのように Presence に反映されるのか（適用処理）の設計・実装または設計書への明記
-
-それ以外は改善提案レベルです。
-
-この2点を解消すれば、安心して main にマージできる品質だと判断します。
+この3点が満たされていれば、残りは改善提案レベルです。

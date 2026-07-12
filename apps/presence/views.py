@@ -66,7 +66,12 @@ class PresenceListView(ListAPIView):
 
     def get_queryset(self):
         # N+1問題を防ぐため select_related / prefetch_related を使用
-        queryset = Employee.objects.filter(deleted_at__isnull=True).select_related(
+        # 部署(department)やグループ(group)が論理削除されている社員は一般画面では除外する
+        queryset = Employee.objects.filter(
+            deleted_at__isnull=True,
+            department__deleted_at__isnull=True,
+            group__deleted_at__isnull=True
+        ).select_related(
             'department', 'group', 'work_location', 'presence', 'presence__status'
         )
         
@@ -83,9 +88,34 @@ class PresenceListView(ListAPIView):
 
 class MyPresenceUpdateView(APIView):
     """
-    ログイン中の自分の現在の所在状態を更新するAPI。
+    ログイン中の自分の現在の所在状態を更新および取得するAPI。
     """
     permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        try:
+            employee = get_current_employee(request)
+        except Employee.DoesNotExist:
+            return Response(
+                {
+                    "error_code": "E0002",
+                    "message": "ログインユーザーに対応する社員情報が見つかりません。"
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        presence = getattr(employee, 'presence', None)
+        presence_data = PresenceSerializer(presence).data if presence else None
+        
+        data = {
+            "id": employee.id,
+            "employee_no": employee.employee_no,
+            "name": employee.name,
+            "email": employee.email,
+            "is_staff": request.user.is_staff or request.user.is_superuser,
+            "presence": presence_data
+        }
+        return Response(data, status=status.HTTP_200_OK)
 
     def patch(self, request, *args, **kwargs):
         try:
@@ -185,7 +215,12 @@ class SearchAPIView(ListAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        queryset = Employee.objects.filter(deleted_at__isnull=True).select_related(
+        # 部署(department)やグループ(group)が論理削除されている社員は一般画面では除外する
+        queryset = Employee.objects.filter(
+            deleted_at__isnull=True,
+            department__deleted_at__isnull=True,
+            group__deleted_at__isnull=True
+        ).select_related(
             'department', 'group', 'work_location', 'presence', 'presence__status'
         )
 

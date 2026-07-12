@@ -1,6 +1,6 @@
 from django.utils import timezone
 from rest_framework import filters, viewsets
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
 
 from .models import Department, Employee, Group, StatusMaster, WorkLocation
 from .serializers import (
@@ -15,7 +15,7 @@ class BaseModelViewSet(viewsets.ModelViewSet):
     """
     論理削除と共通設定をサポートする基底 ViewSet。
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ['display_order', 'id']
     ordering = ['display_order', 'id']
@@ -31,6 +31,12 @@ class BaseModelViewSet(viewsets.ModelViewSet):
 class DepartmentViewSet(BaseModelViewSet):
     queryset = Department.objects.all()
     serializer_class = DepartmentSerializer
+
+    def get_permissions(self):
+        # 一般画面の課絞り込みで GET /departments/ を呼ぶため、listアクションのみ一般ユーザーも許可する
+        if self.action == 'list':
+            return [IsAuthenticated()]
+        return [IsAdminUser()]
 
 
 class GroupViewSet(BaseModelViewSet):
@@ -53,7 +59,7 @@ class WorkLocationViewSet(BaseModelViewSet):
 class StatusMasterViewSet(viewsets.ModelViewSet):
     queryset = StatusMaster.objects.all()
     serializer_class = StatusMasterSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ['display_order', 'id']
     ordering = ['display_order', 'id']

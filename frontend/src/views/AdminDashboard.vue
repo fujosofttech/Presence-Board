@@ -756,6 +756,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import api from '../services/api'
 import { getStatusLabel } from '../utils/status'
 
@@ -941,7 +942,21 @@ const fetchData = async () => {
   }
 }
 
-onMounted(() => {
+const router = useRouter()
+
+onMounted(async () => {
+  try {
+    const meRes = await api.get('/presence/me/')
+    if (!meRes.data.is_staff) {
+      alert('管理者権限がありません。')
+      router.push('/')
+      return
+    }
+  } catch (error) {
+    console.error('管理者チェックエラー:', error)
+    router.push('/')
+    return
+  }
   fetchData()
 })
 
