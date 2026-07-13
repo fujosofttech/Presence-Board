@@ -34,6 +34,15 @@
         <v-icon icon="mdi-account-circle" class="mr-1" />
         {{ myInfo?.name || 'ゲスト' }} (自分)
       </v-chip>
+      <v-btn
+        color="red-lighten-5"
+        variant="flat"
+        prepend-icon="mdi-logout"
+        class="font-weight-bold text-red-darken-4 mr-4"
+        @click="handleLogout"
+      >
+        ログアウト
+      </v-btn>
     </v-app-bar>
 
     <v-row class="justify-center mt-12 w-100">
@@ -672,6 +681,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useDisplay } from 'vuetify'
 import { useAuthStore } from '../stores/auth'
 import { usePresenceSSE } from '../composables/usePresenceSSE'
@@ -753,7 +763,17 @@ interface MyProfile {
 
 // ストアとVuetify Display
 const authStore = useAuthStore()
+const router = useRouter()
 const { smAndDown } = useDisplay()
+
+const handleLogout = async () => {
+  try {
+    await authStore.logout()
+    router.push('/login')
+  } catch (error) {
+    console.error('Logout failed:', error)
+  }
+}
 
 // リアクティブデータ
 const employees = ref<Employee[]>([])
@@ -797,10 +817,10 @@ const myInfo = computed(() => {
 
 // 自分の在籍状態（Presence）
 const myPresence = computed<Presence>(() => {
-  if (myProfile.value) {
+  if (myProfile.value && myProfile.value.presence) {
     return myProfile.value.presence
   }
-  if (myInfo.value) {
+  if (myInfo.value && myInfo.value.presence) {
     return myInfo.value.presence
   }
   return {
@@ -834,12 +854,14 @@ const filteredGroups = computed<GroupWithEmployees[]>(() => {
 
   // 1. 各社員のフィルタリング
   const filteredEmployees = employees.value.filter(emp => {
-    // 課での絞り込み (クライアント側の追加フィルタ)
-    if (selectedDepartment.value !== null && emp.department !== selectedDepartment.value) {
-      return false
+    // 課での絞り込み (数値型である場合のみ絞り込む)
+    if (typeof selectedDepartment.value === 'number') {
+      return emp.department === selectedDepartment.value
     }
     return true
   })
+
+
 
   // 2. 所属グループごとに分類
   filteredEmployees.forEach(emp => {
@@ -941,9 +963,12 @@ const loadInitialData = async () => {
     
     departments.value = [{ id: null, name: '全課' }, ...deptRes.data]
     employees.value = presRes.data
+    console.log('loadInitialData - employees:', employees.value)
+    console.log('loadInitialData - filteredGroups:', filteredGroups.value)
     favorites.value = favRes.data
     recents.value = recRes.data
     myProfile.value = meRes.data
+
   } catch (error) {
     console.error('Failed to load initial data:', error)
   }

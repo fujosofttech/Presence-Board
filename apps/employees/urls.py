@@ -7,6 +7,8 @@ from .views import (
     GroupViewSet,
     StatusMasterViewSet,
     WorkLocationViewSet,
+    AuthView,
+    LogoutView,
 )
 
 router = DefaultRouter()
@@ -17,5 +19,8 @@ router.register(r'status-masters', StatusMasterViewSet, basename='status-master'
 router.register(r'employees', EmployeeViewSet, basename='employee')
 
 urlpatterns = [
+    path('auth/', AuthView.as_view(), name='auth'),
+    path('auth/logout/', LogoutView.as_view(), name='logout'),
     path('', include(router.urls)),
 ]
+

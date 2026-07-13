@@ -2,6 +2,14 @@ from django.utils import timezone
 from rest_framework import filters, viewsets
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 
+from django.contrib.auth import authenticate, login, logout
+from django.views.decorators.csrf import ensure_csrf_cookie
+from django.utils.decorators import method_decorator
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import AllowAny
+
 from .models import Department, Employee, Group, StatusMaster, WorkLocation
 from .serializers import (
     DepartmentSerializer,
@@ -84,3 +92,87 @@ class EmployeeViewSet(BaseModelViewSet):
             queryset = queryset.filter(group_id=group_id)
             
         return queryset
+
+
+class AuthView(APIView):
+    permission_classes = [AllowAny]
+
+    @method_decorator(ensure_csrf_cookie)
+    def get(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            user_data = {
+                "id": request.user.id,
+                "username": request.user.username,
+                "email": request.user.email,
+                "is_staff": request.user.is_staff or request.user.is_superuser,
+            }
+            employee_data = None
+            try:
+                employee = Employee.objects.get(email=request.user.email, deleted_at__isnull=True)
+                employee_data = {
+                    "employee_no": employee.employee_no,
+                    "name": employee.name,
+                }
+            except Employee.DoesNotExist:
+                pass
+            
+            return Response({
+                "authenticated": True,
+                "user": user_data,
+                "employee": employee_data
+            }, status=status.HTTP_200_OK)
+        else:
+            return Response({
+                "authenticated": False
+            }, status=status.HTTP_200_OK)
+
+    def post(self, request, *args, **kwargs):
+        username = request.data.get('username')
+        password = request.data.get('password')
+
+        if not username or not password:
+            return Response({
+                "error_code": "E0001",
+                "message": "ユーザー名とパスワードは必須です。"
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        user = authenticate(request, username=username, password=password)
+        if user is not None:
+            login(request, user)
+            user_data = {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "is_staff": user.is_staff or user.is_superuser,
+            }
+            employee_data = None
+            try:
+                employee = Employee.objects.get(email=user.email, deleted_at__isnull=True)
+                employee_data = {
+                    "employee_no": employee.employee_no,
+                    "name": employee.name,
+                }
+            except Employee.DoesNotExist:
+                pass
+            
+            return Response({
+                "authenticated": True,
+                "user": user_data,
+                "employee": employee_data
+            }, status=status.HTTP_200_OK)
+        else:
+            return Response({
+                "error_code": "E0001",
+                "message": "ユーザー名またはパスワードが正しくありません。"
+            }, status=status.HTTP_401_UNAUTHORIZED)
+
+
+class LogoutView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        logout(request)
+        return Response({
+            "message": "Logout successful"
+        }, status=status.HTTP_200_OK)
+

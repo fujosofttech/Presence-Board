@@ -2,14 +2,11 @@
 URL configuration for Presence Board project.
 """
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, include, re_path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from .views import IndexView
 
 urlpatterns = [
-    # フロントエンド SPA エントリーポイント
-    path('', IndexView.as_view(), name='index'),
-
     # 管理画面
     path('admin/', admin.site.urls),
 
@@ -22,4 +19,8 @@ urlpatterns = [
     # API v1
     path('api/v1/', include('apps.presence.urls')),
     path('api/v1/', include('apps.employees.urls')),
+
+    # フロントエンド SPA エントリーポイント (フォールバック)
+    re_path(r'^.*$', IndexView.as_view(), name='index'),
 ]
+
