@@ -1,8 +1,8 @@
 <template>
-  <v-container class="fill-height bg-slate-50 py-6" fluid>
+  <v-container class="bg-slate-50 py-2 px-3" fluid style="min-height: 100vh;">
     <!-- ナビゲーションバー -->
-    <v-app-bar class="app-bar-gradient" elevation="3">
-      <v-app-bar-title class="font-weight-bold text-h6 d-flex align-center">
+    <v-app-bar class="app-bar-gradient" elevation="2" density="compact">
+      <v-app-bar-title class="font-weight-bold text-subtitle-1 d-flex align-center">
         <v-icon icon="mdi-view-dashboard-outline" class="mr-2" />
         社内行先・在席管理システム
       </v-app-bar-title>
@@ -13,8 +13,8 @@
       <v-chip
         :color="isConnected ? 'success' : 'error'"
         variant="flat"
-        class="mr-4 font-weight-bold text-white shadow-sm"
-        size="small"
+        class="mr-3 font-weight-bold text-white shadow-sm"
+        size="x-small"
       >
         <v-icon :icon="isConnected ? 'mdi-wifi' : 'mdi-wifi-off'" class="mr-1" />
         {{ isConnected ? 'リアルタイム接続中' : '再接続中...' }}
@@ -24,90 +24,93 @@
         v-if="myProfile?.is_staff"
         color="teal-lighten-5"
         variant="flat"
+        size="small"
         prepend-icon="mdi-cog"
-        class="font-weight-bold text-teal-darken-4 mr-4"
+        class="font-weight-bold text-teal-darken-4 mr-3"
         to="/admin"
       >
         管理画面
       </v-btn>
-      <v-chip class="mr-4 text-subtitle-2" color="teal-lighten-4" variant="flat">
+      <v-chip class="mr-3 text-caption" color="teal-lighten-4" variant="flat" size="small">
         <v-icon icon="mdi-account-circle" class="mr-1" />
         {{ myInfo?.name || 'ゲスト' }} (自分)
       </v-chip>
       <v-btn
         color="red-lighten-5"
         variant="flat"
+        size="small"
         prepend-icon="mdi-logout"
-        class="font-weight-bold text-red-darken-4 mr-4"
+        class="font-weight-bold text-red-darken-4 mr-2"
         @click="handleLogout"
       >
         ログアウト
       </v-btn>
     </v-app-bar>
 
-    <v-row class="justify-center mt-12 w-100">
-      <v-col cols="12" md="10" lg="9">
+    <v-row class="justify-center align-start mt-0 pt-0 w-100">
+      <v-col cols="12" class="pt-0">
         
-        <!-- 自分（ログイン中の利用者）のステータス表示カード (最上部固定 & カード改善) -->
-        <v-card v-if="myInfo" class="mb-6 glass-card border-s-lg" :style="{ borderLeftColor: getStatusColor(myPresence.status) + ' !important', borderLeftWidth: '6px !important' }" elevation="2">
-          <v-card-text class="d-flex flex-wrap align-center justify-space-between py-4">
+        <!-- 自分（ログイン中の利用者）のステータス表示カード (コンパクト表示) -->
+        <v-card v-if="myInfo" class="mb-3 glass-card border-s-lg" :style="{ borderLeftColor: getStatusColor(myPresence.status) + ' !important', borderLeftWidth: '5px !important' }" elevation="1">
+          <v-card-text class="d-flex flex-wrap align-center justify-space-between py-2 px-4">
             <div class="d-flex align-center">
-              <v-avatar :color="getAvatarColor(myInfo.name)" size="56" class="mr-4 text-white font-weight-bold text-h5 elevation-2">
+              <v-avatar :color="getAvatarColor(myInfo.name)" size="38" class="mr-3 text-white font-weight-bold text-subtitle-1 elevation-1">
                 {{ myInfo.name[0] }}
               </v-avatar>
               <div>
-                <div class="text-subtitle-2 text-grey-darken-1 font-weight-medium">現在の自分の状況</div>
-                <div class="text-h5 font-weight-bold text-slate-800">{{ myInfo.name }}</div>
+                <div class="text-caption text-grey-darken-1 line-height-none">現在の自分の状況</div>
+                <div class="text-subtitle-1 font-weight-bold text-slate-800">{{ myInfo.name }}</div>
               </div>
             </div>
             
-            <div class="d-flex align-center flex-wrap gap-4 mt-4 mt-md-0">
+            <div class="d-flex align-center flex-wrap gap-2 mt-2 mt-md-0">
               <!-- 状態表示チップ -->
-              <v-chip :color="getStatusColor(myPresence.status)" variant="flat" size="large" class="font-weight-bold text-white shadow-sm py-5 px-4">
-                <v-icon :icon="getStatusIcon(myPresence.status)" class="mr-2" size="large" />
+              <v-chip :color="getStatusColor(myPresence.status)" variant="flat" size="small" class="font-weight-bold text-white shadow-sm py-1 px-3">
+                <v-icon :icon="getStatusIcon(myPresence.status)" class="mr-1" size="small" />
                 {{ getStatusLabel(myPresence.status) }}
               </v-chip>
               
               <!-- 行先・戻り予定 -->
-              <div class="text-body-1 ml-2 d-flex flex-column" v-if="myPresence.destination || myPresence.end_datetime">
-                <span class="text-grey-darken-1 text-caption font-weight-bold">詳細情報</span>
+              <div class="text-caption ml-2 d-flex flex-column" v-if="myPresence.destination || myPresence.end_datetime">
                 <span class="text-slate-700">
-                  <span v-if="myPresence.destination" class="mr-3">
-                    <v-icon icon="mdi-map-marker" size="small" class="mr-1 text-grey" />
+                  <span v-if="myPresence.destination" class="mr-2">
+                    <v-icon icon="mdi-map-marker" size="x-small" class="mr-1 text-grey" />
                     <strong>{{ myPresence.destination }}</strong>
                   </span>
                   <span v-if="myPresence.end_datetime">
-                    <v-icon icon="mdi-clock" size="small" class="mr-1 text-grey" />
+                    <v-icon icon="mdi-clock" size="x-small" class="mr-1 text-grey" />
                     戻り: <strong>{{ formatTimeOnly(myPresence.end_datetime) }}</strong>
                   </span>
                 </span>
               </div>
 
-              <!-- クイック更新エリア (操作性改善) -->
-              <div class="d-flex align-center bg-teal-lighten-5 px-3 py-2 rounded-lg border border-teal-lighten-4">
-                <span class="text-caption text-teal-darken-4 font-weight-bold mr-2">ワンクリック更新:</span>
-                <v-btn size="small" variant="flat" color="green" class="mr-1 text-white font-weight-bold" @click="quickUpdateStatus('PRESENT')">在席</v-btn>
-                <v-btn size="small" variant="flat" color="light-green" class="mr-1 text-white font-weight-bold" @click="quickUpdateStatus('REMOTE')">在宅</v-btn>
-                <v-btn size="small" variant="flat" color="red" class="text-white font-weight-bold" @click="quickUpdateStatus('LEAVE')">退社</v-btn>
+              <!-- クイック更新エリア -->
+              <div class="d-flex align-center bg-teal-lighten-5 px-2 py-1 rounded border border-teal-lighten-4">
+                <span class="text-caption text-teal-darken-4 font-weight-bold mr-1" style="font-size: 0.75rem;">クイック:</span>
+                <v-btn size="x-small" variant="flat" color="green" class="mr-1 text-white font-weight-bold" @click="quickUpdateStatus('PRESENT')">在席</v-btn>
+                <v-btn size="x-small" variant="flat" color="light-green" class="mr-1 text-white font-weight-bold" @click="quickUpdateStatus('REMOTE')">在宅</v-btn>
+                <v-btn size="x-small" variant="flat" color="red" class="text-white font-weight-bold" @click="quickUpdateStatus('LEAVE')">退社</v-btn>
               </div>
 
               <!-- 状況更新ボタン -->
               <v-btn
                 color="teal-darken-2"
+                size="small"
                 prepend-icon="mdi-pencil"
-                class="font-weight-bold text-white px-5 shadow-sm"
-                elevation="2"
+                class="font-weight-bold text-white px-3 shadow-sm"
+                elevation="1"
                 @click="openUpdateDialog"
               >
-                状況を変更
+                状況変更
               </v-btn>
               
               <!-- 予定管理ボタン -->
               <v-btn
                 color="blue-darken-2"
+                size="small"
                 prepend-icon="mdi-calendar-clock"
-                class="font-weight-bold text-white px-5 shadow-sm"
-                elevation="2"
+                class="font-weight-bold text-white px-3 shadow-sm"
+                elevation="1"
                 @click="openScheduleManager"
               >
                 予定管理
@@ -116,11 +119,11 @@
           </v-card-text>
         </v-card>
 
-        <!-- 検索・絞り込みフィルターエリア (検索UI改善) -->
-        <v-card class="mb-6 py-4 px-5 glass-card" elevation="2">
+        <!-- 検索・絞り込みフィルターエリア (コンパクト化) -->
+        <v-card class="mb-4 py-2 px-4 glass-card" elevation="1">
           <v-row dense align="center">
             <!-- 課での絞り込み -->
-            <v-col cols="12" sm="4">
+            <v-col cols="12" sm="3" md="3">
               <v-select
                 v-model="selectedDepartment"
                 :items="departments"
@@ -129,20 +132,20 @@
                 label="所属課"
                 prepend-inner-icon="mdi-domain"
                 variant="outlined"
-                density="comfortable"
+                density="compact"
                 hide-details
                 color="teal"
               ></v-select>
             </v-col>
             
-            <!-- 氏名検索 (自然言語 & Debounce 検索対応) -->
-            <v-col cols="12" sm="8">
+            <!-- 氏名検索 -->
+            <v-col cols="12" sm="9" md="9">
               <v-text-field
                 v-model="searchQuery"
-                label="氏名、状態、行先などを自然言語で検索 (例: 営業部 在宅 / 山田 本日外出)"
+                label="氏名、状態、行先などを検索 (例: 営業部 在宅 / 山田)"
                 prepend-inner-icon="mdi-magnify"
                 variant="outlined"
-                density="comfortable"
+                density="compact"
                 clearable
                 hide-details
                 color="teal"
@@ -151,49 +154,49 @@
             </v-col>
           </v-row>
 
-          <!-- クイック検索チップス (操作性・検索UI改善) -->
-          <div class="mt-3 d-flex flex-wrap align-center gap-2">
-            <span class="text-caption text-grey-darken-1 mr-2 font-weight-medium">クイック検索:</span>
+          <!-- クイック検索チップス -->
+          <div class="mt-2 d-flex flex-wrap align-center gap-1">
+            <span class="text-caption text-grey-darken-1 mr-1 font-weight-medium" style="font-size: 0.75rem;">絞り込み:</span>
             <v-chip
-              size="small"
+              size="x-small"
               color="green-darken-1"
-              class="mr-2"
+              class="mr-1"
               @click="searchQuery = searchQuery === '在席' ? '' : '在席'"
               :variant="searchQuery === '在席' ? 'flat' : 'outlined'"
             >
               在席
             </v-chip>
             <v-chip
-              size="small"
+              size="x-small"
               color="orange-darken-2"
-              class="mr-2"
+              class="mr-1"
               @click="searchQuery = searchQuery === '外出' ? '' : '外出'"
               :variant="searchQuery === '外出' ? 'flat' : 'outlined'"
             >
               外出
             </v-chip>
             <v-chip
-              size="small"
+              size="x-small"
               color="light-green-darken-2"
-              class="mr-2"
+              class="mr-1"
               @click="searchQuery = searchQuery === '在宅' ? '' : '在宅'"
               :variant="searchQuery === '在宅' ? 'flat' : 'outlined'"
             >
               在宅
             </v-chip>
             <v-chip
-              size="small"
+              size="x-small"
               color="blue-darken-2"
-              class="mr-2"
+              class="mr-1"
               @click="searchQuery = searchQuery === '会議' ? '' : '会議'"
               :variant="searchQuery === '会議' ? 'flat' : 'outlined'"
             >
               会議
             </v-chip>
             <v-chip
-              size="small"
+              size="x-small"
               color="cyan-darken-3"
-              class="mr-2"
+              class="mr-1"
               @click="searchQuery = searchQuery === '営業部' ? '' : '営業部'"
               :variant="searchQuery === '営業部' ? 'flat' : 'outlined'"
             >
@@ -202,15 +205,16 @@
           </div>
         </v-card>
 
-        <!-- 社員一覧エリア (グループごとにセクション分け) -->
-        <div v-for="group in filteredGroups" :key="group.id" class="mb-8">
-          <div class="text-h6 font-weight-bold text-slate-800 mb-3 d-flex align-center">
-            <v-icon icon="mdi-account-group-outline" class="mr-2" color="teal-darken-1" />
+        <!-- 社員一覧エリア (グループごとにセクション分け & コンパクト表示) -->
+        <div v-for="group in filteredGroups" :key="group.id" class="mb-4">
+          <div class="text-subtitle-1 font-weight-bold text-slate-800 mb-1 d-flex align-center">
+            <v-icon icon="mdi-account-group-outline" class="mr-1" size="small" color="teal-darken-1" />
             {{ group.departmentName }} - {{ group.name }}
             <v-badge
               :content="group.employees.length.toString()"
               color="teal-darken-1"
               inline
+              size="small"
               class="ml-2 font-weight-bold"
             ></v-badge>
           </div>
@@ -279,16 +283,16 @@
             </v-col>
           </v-row>
 
-          <!-- デスクトップ表示 (PCテーブルデザイン改善) -->
-          <v-card v-else class="glass-card overflow-hidden" elevation="2">
-            <v-table class="bg-transparent">
+          <!-- デスクトップ表示 (PCテーブルデザイン・コンパクト表示) -->
+          <v-card v-else class="glass-card overflow-hidden" elevation="1">
+            <v-table density="compact" class="bg-transparent compact-presence-table">
               <thead>
                 <tr class="bg-teal-lighten-5">
-                  <th class="text-subtitle-2 font-weight-bold text-teal-darken-4" style="width: 15%">状態</th>
-                  <th class="text-subtitle-2 font-weight-bold text-teal-darken-4" style="width: 25%">氏名</th>
-                  <th class="text-subtitle-2 font-weight-bold text-teal-darken-4" style="width: 30%">行先</th>
-                  <th class="text-subtitle-2 font-weight-bold text-teal-darken-4" style="width: 15%">戻り予定</th>
-                  <th class="text-subtitle-2 font-weight-bold text-teal-darken-4 text-right" style="width: 15%">更新時刻</th>
+                  <th class="text-caption font-weight-bold text-teal-darken-4 py-1 px-3" style="width: 14%">状態</th>
+                  <th class="text-caption font-weight-bold text-teal-darken-4 py-1 px-3" style="width: 26%">氏名</th>
+                  <th class="text-caption font-weight-bold text-teal-darken-4 py-1 px-3" style="width: 32%">行先</th>
+                  <th class="text-caption font-weight-bold text-teal-darken-4 py-1 px-3" style="width: 14%">戻り予定</th>
+                  <th class="text-caption font-weight-bold text-teal-darken-4 text-right py-1 px-3" style="width: 14%">更新時刻</th>
                 </tr>
               </thead>
               <tbody>
@@ -299,22 +303,22 @@
                   class="transition-all hover-row"
                 >
                   <!-- 状態 -->
-                  <td>
+                  <td class="py-1 px-3">
                     <v-chip
                       :color="getStatusColor(emp.presence.status)"
-                      size="small"
+                      size="x-small"
                       class="font-weight-bold text-white shadow-sm"
                       variant="flat"
                     >
-                      <v-icon :icon="getStatusIcon(emp.presence.status)" class="mr-1" size="small" />
+                      <v-icon :icon="getStatusIcon(emp.presence.status)" class="mr-1" size="x-small" />
                       {{ getStatusLabel(emp.presence.status) }}
                     </v-chip>
                   </td>
 
                   <!-- 氏名 -->
-                  <td class="font-weight-bold text-slate-800">
+                  <td class="font-weight-bold text-slate-800 py-1 px-3 text-body-2">
                     <div class="d-flex align-center">
-                      <v-avatar :color="getAvatarColor(emp.name)" size="30" class="mr-2 text-white font-weight-bold text-caption shadow-sm">
+                      <v-avatar :color="getAvatarColor(emp.name)" size="24" class="mr-2 text-white font-weight-bold text-caption shadow-sm">
                         {{ emp.name[0] }}
                       </v-avatar>
                       <span>{{ emp.name }}</span>
@@ -331,30 +335,30 @@
                   </td>
 
                   <!-- 行先 -->
-                  <td class="text-slate-700">
+                  <td class="text-slate-700 py-1 px-3 text-body-2">
                     <span v-if="emp.presence.destination" class="d-flex align-center">
-                      <v-icon icon="mdi-map-marker-outline" size="small" class="mr-1 text-grey" />
+                      <v-icon icon="mdi-map-marker-outline" size="x-small" class="mr-1 text-grey" />
                       {{ emp.presence.destination }}
                     </span>
                     <span v-else class="text-grey-lighten-1">－</span>
                   </td>
 
                   <!-- 予定 -->
-                  <td class="text-slate-700">
+                  <td class="text-slate-700 py-1 px-3 text-body-2">
                     <span v-if="emp.presence.end_datetime" class="d-flex align-center">
-                      <v-icon icon="mdi-clock-outline" size="small" class="mr-1 text-grey" />
+                      <v-icon icon="mdi-clock-outline" size="x-small" class="mr-1 text-grey" />
                       {{ formatTimeOnly(emp.presence.end_datetime) }} まで
                     </span>
                     <span v-else class="text-grey-lighten-1">－</span>
                   </td>
 
                   <!-- 更新時刻 -->
-                  <td class="text-right text-caption text-grey-darken-1">
+                  <td class="text-right text-caption text-grey-darken-1 py-1 px-3">
                     {{ formatTimeOnly(emp.presence.updated_at) }}
                   </td>
                 </tr>
                 <tr v-if="group.employees.length === 0">
-                  <td colspan="5" class="text-center text-grey py-6">該当する社員がいません</td>
+                  <td colspan="5" class="text-center text-grey py-3">該当する社員がいません</td>
                 </tr>
               </tbody>
             </v-table>
