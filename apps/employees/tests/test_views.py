@@ -65,6 +65,18 @@ class AuthViewTestCase(APITestCase):
         self.assertTrue(response.data['authenticated'])
         self.assertEqual(response.data['user']['username'], self.username)
 
+    def test_post_auth_with_employee_no(self):
+        """社員番号によるログイン成功の確認"""
+        url = reverse('auth')
+        data = {
+            "username": "E1001",
+            "password": self.password
+        }
+        response = self.client.post(url, data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data['authenticated'])
+        self.assertEqual(response.data['user']['username'], self.username)
+
     def test_post_auth_failed(self):
         """ログイン失敗時（誤ったパスワード）の確認"""
         url = reverse('auth')
@@ -98,3 +110,50 @@ class AuthViewTestCase(APITestCase):
         auth_url = reverse('auth')
         response = self.client.get(auth_url)
         self.assertFalse(response.data['authenticated'])
+
+
+class SetPasswordViewTestCase(APITestCase):
+    def setUp(self):
+        from django.contrib.auth.tokens import default_token_generator
+        from django.utils.http import urlsafe_base64_encode
+        from django.utils.encoding import force_bytes
+
+        self.user = User.objects.create_user(
+            username="newuser",
+            email="newuser@example.com",
+            password="initialpass123",
+            is_active=False
+        )
+        self.token = default_token_generator.make_token(self.user)
+        self.uidb64 = urlsafe_base64_encode(force_bytes(self.user.pk))
+        self.url = reverse('set_password', kwargs={'uidb64': self.uidb64, 'token': self.token})
+
+    def test_get_set_password_page_valid_token(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertContains(response, "パスワード設定")
+
+    def test_get_set_password_page_invalid_token(self):
+        invalid_url = reverse('set_password', kwargs={'uidb64': self.uidb64, 'token': 'invalid-token'})
+        response = self.client.get(invalid_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertContains(response, "無効")
+
+    def test_post_set_password_success(self):
+        response = self.client.post(self.url, {
+            'password': 'NewSecurePassword123!',
+            'password_confirm': 'NewSecurePassword123!'
+        })
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertContains(response, "設定完了")
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.is_active)
+        self.assertTrue(self.user.check_password('NewSecurePassword123!'))
+
+    def test_post_set_password_mismatch(self):
+        response = self.client.post(self.url, {
+            'password': 'NewSecurePassword123!',
+            'password_confirm': 'DifferentPassword123!'
+        })
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertContains(response, "一致しません")
