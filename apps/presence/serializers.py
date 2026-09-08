@@ -117,7 +117,7 @@ class ScheduledStatusSerializer(serializers.ModelSerializer):
             target_date = self.instance.target_date
 
         if target_date and target_date < timezone.localdate():
-            raise serializers.ValidationError({"target_date": "今日以前の日付は登録できません。"})
+            raise serializers.ValidationError({"target_date": "過去の日付は登録できません。"})
 
         status_name = data.get('status')
         if not status_name and self.instance:

@@ -436,15 +436,13 @@ class ScheduledStatusDetailView(APIView):
         if not scheduled:
             return Response({"error_code": "E0005", "message": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        # 対象日より前のみ変更可能
-        if scheduled.target_date <= timezone.localdate():
+        # 過去の予定のみ変更不可（当日は変更可能）
+        if scheduled.target_date < timezone.localdate():
             return Response(
-                {"error_code": "E0006", "message": "当日または過去の予定は変更できません。"},
+                {"error_code": "E0006", "message": "過去の予定は変更できません。"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # PATCHは一部のフィールドだけ送信される可能性があるので、既存データをマージして検証する方がDRFでは良いが、
-        # ここでは Serializer に instance を渡して partial=True で検証する。
         serializer = ScheduledStatusSerializer(scheduled, data=request.data, partial=True, context={'employee': employee})
         if serializer.is_valid():
             if 'status' in serializer.validated_data:
@@ -468,9 +466,52 @@ class ScheduledStatusDetailView(APIView):
             if 'memo' in serializer.validated_data:
                 scheduled.memo = serializer.validated_data['memo']
             
+            was_applied = (scheduled.applied_at is not None and scheduled.target_date == timezone.localdate())
+            # 更新時は applied_at をリセット
+            scheduled.applied_at = None
             scheduled.updated_by = request.user
             try:
                 scheduled.save()
+
+                # 当日の予定の場合の連動
+                today = timezone.localdate()
+                if scheduled.target_date == today:
+                    current_time = timezone.localtime().time()
+                    if scheduled.start_time is None or current_time >= scheduled.start_time:
+                        apply_scheduled_status_record(scheduled, performer=request.user)
+                    elif was_applied:
+                        # 以前は適用されていたが、開始時刻が未来に変更された場合は一旦PRESENTに戻す
+                        presence = Presence.objects.filter(employee=employee).first()
+                        if presence:
+                            status_present = StatusMaster.objects.filter(name='PRESENT').first()
+                            if status_present:
+                                now = timezone.now()
+                                presence.status = status_present
+                                presence.destination = ''
+                                presence.start_datetime = now
+                                presence.end_datetime = None
+                                presence.updated_by = request.user
+                                presence.save()
+
+                                PresenceHistory.objects.create(
+                                    employee=employee,
+                                    status=status_present,
+                                    destination='',
+                                    start_datetime=now,
+                                    end_datetime=None,
+                                    updated_by=request.user
+                                )
+
+                                event_data = {
+                                    "employee_id": employee.id,
+                                    "employee_no": employee.employee_no,
+                                    "status": presence.status.name,
+                                    "destination": "",
+                                    "return_time": "",
+                                    "updated_at": presence.updated_at.isoformat()
+                                }
+                                event_publisher.broadcast("presence_updated", event_data)
+
                 return Response(ScheduledStatusSerializer(scheduled).data, status=status.HTTP_200_OK)
             except Exception:
                 return Response(
@@ -493,15 +534,51 @@ class ScheduledStatusDetailView(APIView):
         if not scheduled:
             return Response({"error_code": "E0005", "message": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        if scheduled.target_date <= timezone.localdate():
+        # 過去の予定のみ取消不可（当日は取消可能）
+        if scheduled.target_date < timezone.localdate():
             return Response(
-                {"error_code": "E0006", "message": "当日または過去の予定は取消できません。"},
+                {"error_code": "E0006", "message": "過去の予定は取消できません。"},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+        was_applied = (scheduled.applied_at is not None and scheduled.target_date == timezone.localdate())
 
         scheduled.deleted_at = timezone.now()
         scheduled.updated_by = request.user
         scheduled.save()
+
+        # 当日の予定で既に適用済みだった場合、現在状態を PRESENT（在席）に復帰
+        if was_applied:
+            presence = Presence.objects.filter(employee=employee).first()
+            if presence:
+                status_present = StatusMaster.objects.filter(name='PRESENT').first()
+                if status_present:
+                    now = timezone.now()
+                    presence.status = status_present
+                    presence.destination = ''
+                    presence.start_datetime = now
+                    presence.end_datetime = None
+                    presence.updated_by = request.user
+                    presence.save()
+
+                    PresenceHistory.objects.create(
+                        employee=employee,
+                        status=status_present,
+                        destination='',
+                        start_datetime=now,
+                        end_datetime=None,
+                        updated_by=request.user
+                    )
+
+                    event_data = {
+                        "employee_id": employee.id,
+                        "employee_no": employee.employee_no,
+                        "status": presence.status.name,
+                        "destination": "",
+                        "return_time": "",
+                        "updated_at": presence.updated_at.isoformat()
+                    }
+                    event_publisher.broadcast("presence_updated", event_data)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 

@@ -567,7 +567,7 @@ class ScheduledStatusAPITestCase(APITestCase):
         self.assertEqual(scheduled.destination, "新しい場所")
 
     def test_patch_past_date_error(self):
-        target_date = timezone.localdate() # Today is considered past/current, cannot be modified
+        target_date = timezone.localdate() - timedelta(days=1) # 過去日は変更不可
         scheduled = ScheduledStatus.objects.create(
             employee=self.employee,
             target_date=target_date,
@@ -578,6 +578,21 @@ class ScheduledStatusAPITestCase(APITestCase):
         response = self.client.patch(detail_url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data['error_code'], "E0006")
+
+    def test_patch_today_scheduled_status(self):
+        """当日の予定が正常に変更できること"""
+        today = timezone.localdate()
+        scheduled = ScheduledStatus.objects.create(
+            employee=self.employee,
+            target_date=today,
+            status=self.status_present
+        )
+        detail_url = reverse('presence:scheduled-status-detail', kwargs={'pk': scheduled.id})
+        data = {"status": "OUT", "destination": "当日変更先", "end_time": "18:00"}
+        response = self.client.patch(detail_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        scheduled.refresh_from_db()
+        self.assertEqual(scheduled.destination, "当日変更先")
 
     def test_delete_scheduled_status(self):
         target_date = timezone.localdate() + timedelta(days=2)
@@ -592,6 +607,47 @@ class ScheduledStatusAPITestCase(APITestCase):
         
         scheduled.refresh_from_db()
         self.assertIsNotNone(scheduled.deleted_at)
+
+    def test_delete_today_scheduled_status_reverts_presence(self):
+        """当日の適用済み予定を削除した際、在席(PRESENT)に復帰すること"""
+        today = timezone.localdate()
+        scheduled = ScheduledStatus.objects.create(
+            employee=self.employee,
+            target_date=today,
+            status=self.status_out,
+            destination="当日外出先",
+            applied_at=timezone.now()
+        )
+        # PresenceをOUTにしておく
+        Presence.objects.create(
+            employee=self.employee,
+            status=self.status_out,
+            destination="当日外出先"
+        )
+
+        detail_url = reverse('presence:scheduled-status-detail', kwargs={'pk': scheduled.id})
+        response = self.client.delete(detail_url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        
+        scheduled.refresh_from_db()
+        self.assertIsNotNone(scheduled.deleted_at)
+
+        presence = Presence.objects.get(employee=self.employee)
+        self.assertEqual(presence.status.name, "PRESENT")
+        self.assertEqual(presence.destination, "")
+
+    def test_delete_past_date_error(self):
+        """過去の予定は取消できないこと"""
+        past_date = timezone.localdate() - timedelta(days=1)
+        scheduled = ScheduledStatus.objects.create(
+            employee=self.employee,
+            target_date=past_date,
+            status=self.status_present
+        )
+        detail_url = reverse('presence:scheduled-status-detail', kwargs={'pk': scheduled.id})
+        response = self.client.delete(detail_url)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['error_code'], "E0006")
 
     def test_unauthenticated(self):
         self.client.logout()

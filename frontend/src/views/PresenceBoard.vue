@@ -1271,6 +1271,8 @@ const submitSchedule = async () => {
       await api.post('/scheduled-status/', payload)
     }
     await loadScheduledStatuses()
+    const meRes = await api.get('/presence/me/')
+    myProfile.value = meRes.data
     scheduleEditing.value = false
   } catch (error: any) {
     console.error('Failed to submit schedule:', error)
@@ -1293,6 +1295,8 @@ const deleteSchedule = async (id: number) => {
   try {
     await api.delete(`/scheduled-status/${id}/`)
     await loadScheduledStatuses()
+    const meRes = await api.get('/presence/me/')
+    myProfile.value = meRes.data
   } catch (error: any) {
     console.error('Failed to delete schedule:', error)
     alert(error.response?.data?.message || '削除に失敗しました。')
