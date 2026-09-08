@@ -671,6 +671,44 @@ class ScheduledStatusAPITestCase(APITestCase):
         self.assertEqual(res4.status_code, status.HTTP_201_CREATED)
         self.assertEqual(res4.data['destination'], "再登録行先")
 
+    def test_post_scheduled_status_customer_with_work_location(self):
+        """客先常駐社員が行先未入力でもwork_locationから補完されて登録成功すること"""
+        work_loc = WorkLocation.objects.create(
+            company_name='株式会社テスト常駐先',
+            office_name='本社ビル',
+            display_order=1
+        )
+        self.employee.work_location = work_loc
+        self.employee.save()
+        StatusMaster.objects.get_or_create(name='CUSTOMER', defaults={'display_order': 4})
+
+        target_date = timezone.localdate() + timedelta(days=1)
+        data = {
+            "target_date": str(target_date),
+            "status": "CUSTOMER",
+            "destination": "",
+            "start_time": "09:00",
+            "end_time": "18:00"
+        }
+        response = self.client.post(self.list_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['destination'], "株式会社テスト常駐先 本社ビル")
+
+    def test_post_scheduled_status_present_with_hours(self):
+        """PRESENTで勤務予定時間(end_time含む)を指定してもエラーにならず登録できること"""
+        target_date = timezone.localdate() + timedelta(days=1)
+        data = {
+            "target_date": str(target_date),
+            "status": "PRESENT",
+            "start_time": "09:00",
+            "end_time": "18:00",
+            "destination": "不要な行先"
+        }
+        response = self.client.post(self.list_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['destination'], "")
+        self.assertEqual(response.data['end_time'], "18:00:00")
+
 
 class ApplyScheduledStatusTestCase(APITestCase):
     def setUp(self):

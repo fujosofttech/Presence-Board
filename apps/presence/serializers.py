@@ -112,22 +112,57 @@ class ScheduledStatusSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         target_date = data.get('target_date')
+        if not target_date and self.instance:
+            target_date = self.instance.target_date
+
         if target_date and target_date < timezone.localdate():
             raise serializers.ValidationError({"target_date": "今日以前の日付は登録できません。"})
 
         status_name = data.get('status')
-        destination = data.get('destination', '')
-        end_time = data.get('end_time')
+        if not status_name and self.instance:
+            status_name = self.instance.status.name
 
-        validated = validate_presence_data(
-            status_name=status_name,
-            destination=destination,
-            end_time_name='end_time',
-            end_time_value=end_time
-        )
-        
-        data['destination'] = validated['destination']
-        data['end_time'] = validated['end_time']
+        destination = data.get('destination')
+        if destination is None and self.instance:
+            destination = self.instance.destination
+        destination = (destination or '').strip()
+
+        end_time = data.get('end_time')
+        if end_time is None and self.instance and 'end_time' not in data:
+            end_time = self.instance.end_time
+
+        employee = self.context.get('employee')
+        status_code = StatusMaster.StatusCode
+        errors = {}
+
+        if status_name == status_code.OUT:
+            if not destination:
+                errors['destination'] = "Destination is required for OUT."
+            if not end_time:
+                errors['end_time'] = "End time is required for OUT."
+        elif status_name in [status_code.CUSTOMER, status_code.MEETING]:
+            if not destination:
+                # 客先常駐社員で勤務場所が登録されている場合は自動補完
+                if status_name == status_code.CUSTOMER and employee and employee.work_location:
+                    loc = employee.work_location
+                    destination = f"{loc.company_name} {loc.office_name}".strip()
+                else:
+                    errors['destination'] = f"Destination is required for {status_name}."
+        elif status_name == status_code.DIRECT_HOME:
+            if not destination:
+                errors['destination'] = "Destination is required for DIRECT_HOME."
+            end_time = None
+        elif status_name in [status_code.PRESENT, status_code.LEAVE, status_code.REMOTE, status_code.HOLIDAY]:
+            # 行先は不要なため自動クリア（バリデーションエラーにせずサニタイズ）
+            destination = ''
+            if status_name in [status_code.HOLIDAY, status_code.LEAVE]:
+                end_time = None
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        data['destination'] = destination
+        data['end_time'] = end_time
 
         return data
 

@@ -621,17 +621,18 @@
                       :variant="scheduleForm.status === key ? 'flat' : 'outlined'"
                       :class="{'text-white': scheduleForm.status === key, 'text-grey-darken-2 border-slate-200': scheduleForm.status !== key}"
                       class="font-weight-bold py-1 mb-2 shadow-sm"
-                      @click="scheduleForm.status = key"
+                      @click="selectScheduleStatus(key)"
                     >
                       {{ def.label }}
                     </v-btn>
                   </v-col>
                 </v-row>
               </v-col>
-              <v-col cols="12">
+              <v-col cols="12" v-if="scheduleStatusRule.requiresDestination !== 'disabled'">
                 <v-text-field
                   v-model="scheduleForm.destination"
-                  label="行先"
+                  :label="'行先' + (scheduleStatusRule.requiresDestination === 'required' ? ' (必須)' : ' (任意)')"
+                  :rules="[v => (scheduleStatusRule.requiresDestination !== 'required' || !!v?.trim()) || '行先を入力してください']"
                   variant="outlined"
                   density="comfortable"
                   class="bg-white rounded-lg shadow-sm"
@@ -647,10 +648,11 @@
                   class="bg-white rounded-lg shadow-sm"
                 ></v-text-field>
               </v-col>
-              <v-col cols="6">
+              <v-col cols="6" v-if="scheduleStatusRule.requiresReturnTime !== 'disabled'">
                 <v-text-field
                   v-model="scheduleForm.end_time"
-                  label="終了時刻"
+                  :label="'終了時刻' + (scheduleStatusRule.requiresReturnTime === 'required' ? ' (必須)' : ' (任意)')"
+                  :rules="[v => (scheduleStatusRule.requiresReturnTime !== 'required' || !!v) || '終了時刻を入力してください']"
                   type="time"
                   variant="outlined"
                   density="comfortable"
@@ -763,6 +765,9 @@ interface MyProfile {
   email: string
   is_staff: boolean
   presence: Presence
+  work_location?: number | null
+  work_location_company?: string | null
+  work_location_office?: string | null
 }
 
 // ストアとVuetify Display
@@ -812,6 +817,11 @@ const scheduleForm = ref<Partial<ScheduledStatus>>({})
 // 選択中のステータスの定義ルール
 const statusRule = computed<StatusInfo>(() => {
   return getStatusDefinition(form.value.status)
+})
+
+// 予定登録フォームで選択中のステータスの定義ルール
+const scheduleStatusRule = computed<StatusInfo>(() => {
+  return getStatusDefinition(scheduleForm.value.status || 'PRESENT')
 })
 
 // ログイン中の「自分」の情報
@@ -1168,6 +1178,20 @@ const openScheduleManager = async () => {
   scheduleManagerDialog.value = true
 }
 
+const selectScheduleStatus = (statusKey: string) => {
+  scheduleForm.value.status = statusKey
+  const def = getStatusDefinition(statusKey)
+  const profile = myProfile.value
+  if (def.requiresDestination === 'disabled') {
+    scheduleForm.value.destination = ''
+  } else if (statusKey === 'CUSTOMER' && !scheduleForm.value.destination && profile?.work_location_company) {
+    scheduleForm.value.destination = `${profile.work_location_company} ${profile.work_location_office || ''}`.trim()
+  }
+  if (def.requiresReturnTime === 'disabled') {
+    scheduleForm.value.end_time = ''
+  }
+}
+
 const openScheduleForm = (item: ScheduledStatus | null = null) => {
   scheduleErrorMessage.value = ''
   if (item) {
@@ -1186,12 +1210,19 @@ const openScheduleForm = (item: ScheduledStatus | null = null) => {
     const yyyy = tomorrow.getFullYear()
     const mm = String(tomorrow.getMonth() + 1).padStart(2, '0')
     const dd = String(tomorrow.getDate()).padStart(2, '0')
+
+    const profile = myProfile.value
+    const hasWorkLocation = !!(profile?.work_location_company)
+    const initialStatus = hasWorkLocation ? 'CUSTOMER' : 'PRESENT'
+    const initialDestination = (profile?.work_location_company)
+      ? `${profile.work_location_company} ${profile.work_location_office || ''}`.trim()
+      : ''
     
     scheduleForm.value = {
       id: undefined,
       target_date: `${yyyy}-${mm}-${dd}`,
-      status: 'OUT',
-      destination: '',
+      status: initialStatus,
+      destination: initialDestination,
       start_time: '',
       end_time: '',
       memo: ''
@@ -1207,10 +1238,30 @@ const submitSchedule = async () => {
     return
   }
 
+  const rule = scheduleStatusRule.value
+  const profile = myProfile.value
+  if (rule.requiresDestination === 'required' && !scheduleForm.value.destination?.trim()) {
+    if (scheduleForm.value.status === 'CUSTOMER' && profile?.work_location_company) {
+      scheduleForm.value.destination = `${profile.work_location_company} ${profile.work_location_office || ''}`.trim()
+    } else {
+      scheduleErrorMessage.value = `${rule.label}の行先を入力してください`
+      return
+    }
+  }
+  if (rule.requiresReturnTime === 'required' && !scheduleForm.value.end_time) {
+    scheduleErrorMessage.value = `${rule.label}の終了時刻を入力してください`
+    return
+  }
+
   scheduleSubmitting.value = true
   try {
-    // 空文字の時刻はnullに変換
     const payload = { ...scheduleForm.value }
+    if (rule.requiresDestination === 'disabled') {
+      payload.destination = ''
+    }
+    if (rule.requiresReturnTime === 'disabled') {
+      payload.end_time = null
+    }
     if (!payload.start_time) payload.start_time = null
     if (!payload.end_time) payload.end_time = null
 
@@ -1226,8 +1277,8 @@ const submitSchedule = async () => {
     if (error.response?.data?.message) {
       scheduleErrorMessage.value = error.response.data.message
       if (error.response.data.details) {
-         // Object.values を使って詳細エラーを結合
-         scheduleErrorMessage.value += ' ' + Object.values(error.response.data.details).join(' ')
+         const details = error.response.data.details
+         scheduleErrorMessage.value += ' ' + Object.values(details).flat().join(' ')
       }
     } else {
       scheduleErrorMessage.value = '保存に失敗しました。'
