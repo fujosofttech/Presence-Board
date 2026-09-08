@@ -11,6 +11,7 @@ from rest_framework.generics import ListAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.renderers import BaseRenderer
 
 from datetime import timedelta
 from django.db.models import Max
@@ -31,11 +32,20 @@ from .services.current_employee import get_current_employee
 logger = logging.getLogger(__name__)
 
 
+class PassthroughRenderer(BaseRenderer):
+    media_type = 'text/event-stream'
+    format = 'txt'
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        return data
+
+
 class SSEEventStreamView(APIView):
     """
     Server-Sent Events (SSE) による状態更新ストリーム配信エンドポイント。
     """
     permission_classes = [IsAuthenticated]
+    renderer_classes = [PassthroughRenderer]
 
     def get(self, request, *args, **kwargs):
         subscription = event_publisher.subscribe()
@@ -126,6 +136,9 @@ class MyPresenceUpdateView(APIView):
             "department_name": employee.department.name if employee.department else None,
             "group": employee.group_id,
             "group_name": employee.group.name if employee.group else None,
+            "work_location": employee.work_location_id,
+            "work_location_company": employee.work_location.company_name if employee.work_location else None,
+            "work_location_office": employee.work_location.office_name if employee.work_location else None,
             "is_staff": request.user.is_staff or request.user.is_superuser,
             "presence": presence_data
         }
@@ -365,7 +378,7 @@ class ScheduledStatusListCreateView(APIView):
         except Employee.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
-        serializer = ScheduledStatusSerializer(data=request.data)
+        serializer = ScheduledStatusSerializer(data=request.data, context={'employee': employee})
         if serializer.is_valid():
             try:
                 status_master = StatusMaster.objects.get(name=serializer.validated_data['status'])
@@ -424,7 +437,7 @@ class ScheduledStatusDetailView(APIView):
 
         # PATCHは一部のフィールドだけ送信される可能性があるので、既存データをマージして検証する方がDRFでは良いが、
         # ここでは Serializer に instance を渡して partial=True で検証する。
-        serializer = ScheduledStatusSerializer(scheduled, data=request.data, partial=True)
+        serializer = ScheduledStatusSerializer(scheduled, data=request.data, partial=True, context={'employee': employee})
         if serializer.is_valid():
             if 'status' in serializer.validated_data:
                 try:

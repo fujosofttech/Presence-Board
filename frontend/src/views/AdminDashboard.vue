@@ -16,6 +16,15 @@
       >
         一般画面に戻る
       </v-btn>
+      <v-btn
+        color="red-lighten-5"
+        variant="flat"
+        prepend-icon="mdi-logout"
+        class="font-weight-bold text-red-darken-4 mr-4"
+        @click="handleLogout"
+      >
+        ログアウト
+      </v-btn>
     </v-app-bar>
 
     <v-row class="justify-center mt-12 w-100">
@@ -757,10 +766,22 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
 import api from '../services/api'
 import { getStatusLabel } from '../utils/status'
 
 // インターフェース定義
+const authStore = useAuthStore()
+
+const handleLogout = async () => {
+  try {
+    await authStore.logout()
+    router.push('/login')
+  } catch (error) {
+    console.error('Logout failed:', error)
+  }
+}
+
 interface Department {
   id: number
   name: string

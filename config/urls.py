@@ -2,14 +2,14 @@
 URL configuration for Presence Board project.
 """
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, include, re_path
+from django.conf import settings
+from django.conf.urls.static import static
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+from apps.employees.views import SetPasswordView
 from .views import IndexView
 
 urlpatterns = [
-    # フロントエンド SPA エントリーポイント
-    path('', IndexView.as_view(), name='index'),
-
     # 管理画面
     path('admin/', admin.site.urls),
 
@@ -22,4 +22,10 @@ urlpatterns = [
     # API v1
     path('api/v1/', include('apps.presence.urls')),
     path('api/v1/', include('apps.employees.urls')),
-]
+
+    # 初回パスワード設定画面 (ワンタイムURL)
+    path('set-password/<str:uidb64>/<str:token>/', SetPasswordView.as_view(), name='set_password'),
+
+    # フロントエンド SPA エントリーポイント (フォールバック)
+    re_path(r'^.*$', IndexView.as_view(), name='index'),
+] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
