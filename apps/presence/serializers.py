@@ -99,10 +99,11 @@ class FavoriteDestinationCreateSerializer(serializers.ModelSerializer):
 
 class ScheduledStatusSerializer(serializers.ModelSerializer):
     status = serializers.CharField(max_length=50)
+    applied_at = serializers.DateTimeField(read_only=True)
 
     class Meta:
         model = ScheduledStatus
-        fields = ['id', 'target_date', 'status', 'destination', 'start_time', 'end_time', 'memo']
+        fields = ['id', 'target_date', 'status', 'destination', 'start_time', 'end_time', 'memo', 'applied_at']
 
     def validate_status(self, value):
         upper_val = value.upper()

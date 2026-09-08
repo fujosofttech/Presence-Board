@@ -183,6 +183,11 @@ class ScheduledStatus(TimestampModel):
         blank=True,
         verbose_name="メモ",
     )
+    applied_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="適用日時",
+    )
     created_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,

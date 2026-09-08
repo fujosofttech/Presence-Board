@@ -734,15 +734,16 @@ class ApplyScheduledStatusTestCase(APITestCase):
     def test_apply_scheduled_status_idempotency(self):
         """バッチ実行による適用と冪等性のテスト"""
         today = timezone.localdate()
+        past_time = (timezone.localtime() - timedelta(hours=1)).time()
         
-        # 当日の予定を作成
+        # 当日の予定を作成 (開始時刻を過去にして確実に適用対象にする)
         ScheduledStatus.objects.create(
             employee=self.employee,
             target_date=today,
             status=self.status_out,
             destination="テスト先",
-            start_time="10:00",
-            end_time="18:00"
+            start_time=past_time,
+            end_time="23:59:00"
         )
         
         out = StringIO()
@@ -784,7 +785,7 @@ class ApplyScheduledStatusTestCase(APITestCase):
             destination="本社"
         )
         
-        with patch('apps.presence.management.commands.apply_scheduled_status.event_publisher') as mock_pub:
+        with patch('apps.presence.services.scheduled_status.event_publisher') as mock_pub:
             # コマンド実行
             call_command('apply_scheduled_status')
             
@@ -794,6 +795,29 @@ class ApplyScheduledStatusTestCase(APITestCase):
             self.assertEqual(call_args[0], 'presence_updated')
             self.assertEqual(call_args[1]['employee_no'], self.employee.employee_no)
             self.assertEqual(call_args[1]['status'], 'OUT')
+
+    def test_apply_scheduled_status_future_time_skipped(self):
+        """開始時刻が未来の予定は適用されずスキップされること"""
+        today = timezone.localdate()
+        future_time = (timezone.localtime() + timedelta(hours=2)).time()
+        
+        scheduled = ScheduledStatus.objects.create(
+            employee=self.employee,
+            target_date=today,
+            status=self.status_out,
+            destination="未来の外出先",
+            start_time=future_time
+        )
+        
+        out = StringIO()
+        call_command('apply_scheduled_status', stdout=out)
+        self.assertIn("1 件スキップ", out.getvalue())
+        
+        scheduled.refresh_from_db()
+        self.assertIsNone(scheduled.applied_at)
+        
+        presence = Presence.objects.filter(employee=self.employee).first()
+        self.assertIsNone(presence)
 
 
 class AuditLogAndHistorySearchViewTestCase(APITestCase):

@@ -1,3 +1,4 @@
+from apps.presence.services.scheduled_status import apply_scheduled_status_record
 import json
 import logging
 import queue
@@ -397,6 +398,13 @@ class ScheduledStatusListCreateView(APIView):
                     created_by=request.user,
                     updated_by=request.user
                 )
+                # 当日かつ開始時刻に達している（または開始時刻未指定）場合は即時適用
+                today = timezone.localdate()
+                if scheduled.target_date == today:
+                    current_time = timezone.localtime().time()
+                    if scheduled.start_time is None or current_time >= scheduled.start_time:
+                        apply_scheduled_status_record(scheduled, performer=request.user)
+
                 return Response(ScheduledStatusSerializer(scheduled).data, status=status.HTTP_201_CREATED)
             except Exception:
                 return Response(
